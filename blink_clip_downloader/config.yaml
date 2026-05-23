@@ -69,7 +69,8 @@ options:
   ha_notification_title: "Blink Clip Downloaded"
 
   # --- Extra features ---
-  webhook_url: ""
+  # webhook_url intentionally omitted: "url?" only accepts a real URL or null.
+  # Leave blank in the HA UI to disable; fill in a full https:// URL to enable.
   create_clip_manifest: true
 
   # --- Clip library database ---
