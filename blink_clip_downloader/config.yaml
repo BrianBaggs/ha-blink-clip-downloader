@@ -1,0 +1,127 @@
+name: Blink Clip Downloader
+version: "2.0.0"
+slug: blink_clip_downloader
+description: >-
+  Continuously downloads Blink camera clips to local storage with timestamps,
+  per-camera organisation, retention policies, storage quotas, HA notifications,
+  motion/time-window filtering, SQLite clip library, web UI, and event-driven
+  instant download.
+url: "https://github.com/yourusername/ha-blink-clip-downloader/tree/main/blink_clip_downloader"
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+init: false
+homeassistant_api: true
+map:
+  - share:rw
+  - data:rw
+ports:
+  8099/tcp: 8099
+ports_description:
+  8099/tcp: Clip library web UI
+webui: "http://[HOST]:[PORT:8099]"
+
+options:
+  # --- Credentials ---
+  username: ""
+  password: ""
+
+  # --- Storage ---
+  download_path: "/share/blink-clips"
+  organize_by_camera: true
+  organize_by_date: true
+  filename_format: "{camera}_{timestamp}"
+
+  # --- Polling ---
+  poll_interval: 300
+  max_clips_per_poll: 50
+
+  # --- Retention & quota ---
+  retention_days: 30
+  max_storage_gb: 10
+
+  # --- Filtering ---
+  camera_filter: []
+  motion_only: false
+  time_window_start: ""
+  time_window_end: ""
+  min_clip_duration: 0
+
+  # --- Download options ---
+  download_thumbnails: false
+  concurrent_downloads: 3
+  retry_attempts: 3
+
+  # --- HA notifications ---
+  notify_ha: true
+  ha_notification_title: "Blink Clip Downloaded"
+
+  # --- Extra features ---
+  webhook_url: ""
+  create_clip_manifest: true
+
+  # --- Clip library database ---
+  enable_library_db: true
+
+  # --- Media server / web UI ---
+  enable_media_server: true
+  media_server_port: 8099
+
+  # --- Event-driven instant download ---
+  watch_ha_events: true
+  fast_poll_duration: 120
+  fast_poll_interval: 15
+  event_cameras: []
+
+  # --- Daily digest ---
+  digest_enabled: true
+  digest_time: "08:00"
+
+  # --- ZIP archiving ---
+  archive_enabled: false
+  archive_after_days: 60
+
+  # --- Logging ---
+  log_level: "info"
+
+schema:
+  username: "str"
+  password: "password"
+  download_path: "str"
+  organize_by_camera: "bool"
+  organize_by_date: "bool"
+  filename_format: "str"
+  poll_interval: "int(30,3600)"
+  max_clips_per_poll: "int(1,500)"
+  retention_days: "int(0,365)"
+  max_storage_gb: "int(0,1000)"
+  camera_filter:
+    - "str?"
+  motion_only: "bool"
+  time_window_start: "str?"
+  time_window_end: "str?"
+  min_clip_duration: "int(0,3600)"
+  download_thumbnails: "bool"
+  concurrent_downloads: "int(1,10)"
+  retry_attempts: "int(1,10)"
+  notify_ha: "bool"
+  ha_notification_title: "str"
+  webhook_url: "url?"
+  create_clip_manifest: "bool"
+  enable_library_db: "bool"
+  enable_media_server: "bool"
+  media_server_port: "int(1024,65535)"
+  watch_ha_events: "bool"
+  fast_poll_duration: "int(10,3600)"
+  fast_poll_interval: "int(5,60)"
+  event_cameras:
+    - "str?"
+  digest_enabled: "bool"
+  digest_time: "str"
+  archive_enabled: "bool"
+  archive_after_days: "int(1,365)"
+  log_level: "list(debug|info|warning|error)"
+
+image: "ghcr.io/yourusername/ha-blink-clip-downloader/blink_clip_downloader"

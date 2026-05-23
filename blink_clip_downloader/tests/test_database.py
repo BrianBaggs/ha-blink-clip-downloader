@@ -1,0 +1,262 @@
+"""Tests for ClipDatabase."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+
+from blink_downloader.database import ClipDatabase
+
+
+@pytest.fixture
+async def db(tmp_path: Path) -> ClipDatabase:
+    d = ClipDatabase(tmp_path / "test.db")
+    await d.init()
+    yield d
+    await d.close()
+
+
+def _make_clip(clip_id: str = "clip1", camera: str = "Front Door", **kwargs) -> dict:
+    return {
+        "id": clip_id,
+        "camera": camera,
+        "path": f"/share/blink-clips/{clip_id}.mp4",
+        "timestamp": kwargs.get("timestamp", "2024-06-01T08:00:00+00:00"),
+        "size_bytes": kwargs.get("size_bytes", 1_048_576),
+        "duration": kwargs.get("duration", 5),
+        "source": kwargs.get("source", "pir"),
+        "network_id": kwargs.get("network_id", 10),
+    }
+
+
+# ------------------------------------------------------------------
+# Lifecycle
+# ------------------------------------------------------------------
+
+async def test_init_creates_tables(tmp_path: Path) -> None:
+    d = ClipDatabase(tmp_path / "new.db")
+    await d.init()
+    assert (tmp_path / "new.db").exists()
+    await d.close()
+
+
+async def test_double_close_is_safe(db: ClipDatabase) -> None:
+    await db.close()
+    await db.close()  # should not raise
+
+
+# ------------------------------------------------------------------
+# add_clip / get_clip
+# ------------------------------------------------------------------
+
+async def test_add_and_get_clip(db: ClipDatabase) -> None:
+    clip = _make_clip()
+    await db.add_clip(clip)
+    result = await db.get_clip("clip1")
+    assert result is not None
+    assert result["camera"] == "Front Door"
+    assert result["size_bytes"] == 1_048_576
+    assert result["starred"] is False
+    assert result["archived"] is False
+    assert result["tags"] == []
+
+
+async def test_add_clip_idempotent(db: ClipDatabase) -> None:
+    clip = _make_clip()
+    await db.add_clip(clip)
+    await db.add_clip(clip)  # INSERT OR IGNORE — no error
+    count = await db.count_clips()
+    assert count == 1
+
+
+async def test_get_clip_missing_returns_none(db: ClipDatabase) -> None:
+    assert await db.get_clip("nonexistent") is None
+
+
+async def test_add_clip_when_db_not_init() -> None:
+    d = ClipDatabase(Path("/tmp/never_opened.db"))
+    await d.add_clip(_make_clip())  # should silently no-op
+
+
+# ------------------------------------------------------------------
+# star_clip / set_tags
+# ------------------------------------------------------------------
+
+async def test_star_and_unstar_clip(db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip())
+    assert await db.star_clip("clip1", True) is True
+    result = await db.get_clip("clip1")
+    assert result["starred"] is True
+
+    assert await db.star_clip("clip1", False) is True
+    result = await db.get_clip("clip1")
+    assert result["starred"] is False
+
+
+async def test_star_nonexistent_returns_false(db: ClipDatabase) -> None:
+    assert await db.star_clip("ghost", True) is False
+
+
+async def test_set_tags(db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip())
+    assert await db.set_tags("clip1", ["important", "night"]) is True
+    result = await db.get_clip("clip1")
+    assert "important" in result["tags"]
+    assert "night" in result["tags"]
+
+
+async def test_set_tags_nonexistent_returns_false(db: ClipDatabase) -> None:
+    assert await db.set_tags("ghost", ["foo"]) is False
+
+
+# ------------------------------------------------------------------
+# delete_clip
+# ------------------------------------------------------------------
+
+async def test_delete_clip(db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip())
+    assert await db.delete_clip("clip1") is True
+    assert await db.get_clip("clip1") is None
+
+
+async def test_delete_nonexistent_returns_false(db: ClipDatabase) -> None:
+    assert await db.delete_clip("ghost") is False
+
+
+# ------------------------------------------------------------------
+# get_clips (filtered)
+# ------------------------------------------------------------------
+
+async def test_get_clips_all(db: ClipDatabase) -> None:
+    for i in range(3):
+        await db.add_clip(_make_clip(f"c{i}", camera="Cam A"))
+    clips = await db.get_clips()
+    assert len(clips) == 3
+
+
+async def test_get_clips_filter_by_camera(db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("c1", camera="Front Door"))
+    await db.add_clip(_make_clip("c2", camera="Back Yard"))
+    clips = await db.get_clips(camera="Back Yard")
+    assert len(clips) == 1
+    assert clips[0]["camera"] == "Back Yard"
+
+
+async def test_get_clips_filter_starred(db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("c1"))
+    await db.add_clip(_make_clip("c2"))
+    await db.star_clip("c1", True)
+    starred = await db.get_clips(starred=True)
+    assert len(starred) == 1
+    assert starred[0]["id"] == "c1"
+
+
+async def test_get_clips_search(db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("abc123", camera="Garage"))
+    await db.add_clip(_make_clip("xyz999", camera="Office"))
+    results = await db.get_clips(search="Garage")
+    assert len(results) == 1
+
+
+async def test_get_clips_pagination(db: ClipDatabase) -> None:
+    for i in range(10):
+        await db.add_clip(_make_clip(f"c{i:02d}", timestamp=f"2024-06-{i+1:02d}T00:00:00+00:00"))
+    page1 = await db.get_clips(limit=5, offset=0)
+    page2 = await db.get_clips(limit=5, offset=5)
+    assert len(page1) == 5
+    assert len(page2) == 5
+    assert {c["id"] for c in page1}.isdisjoint({c["id"] for c in page2})
+
+
+# ------------------------------------------------------------------
+# mark_archived / get_clips_to_archive
+# ------------------------------------------------------------------
+
+async def test_mark_archived(db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip())
+    await db.mark_archived("clip1", "/archives/2024-06.zip")
+    result = await db.get_clip("clip1")
+    assert result["archived"] is True
+    assert result["archive_path"] == "/archives/2024-06.zip"
+
+
+async def test_get_clips_to_archive(db: ClipDatabase) -> None:
+    old_ts = (datetime.now(timezone.utc) - timedelta(days=100)).isoformat()
+    new_ts = datetime.now(timezone.utc).isoformat()
+    await db.add_clip(_make_clip("old", timestamp=old_ts))
+    await db.add_clip(_make_clip("new", timestamp=new_ts))
+    to_archive = await db.get_clips_to_archive(older_than_days=30)
+    ids = [c["id"] for c in to_archive]
+    assert "old" in ids
+    assert "new" not in ids
+
+
+# ------------------------------------------------------------------
+# Statistics
+# ------------------------------------------------------------------
+
+async def test_get_stats_empty(db: ClipDatabase) -> None:
+    stats = await db.get_stats()
+    assert stats["total_count"] == 0
+    assert stats["starred_count"] == 0
+
+
+async def test_get_stats_counts(db: ClipDatabase) -> None:
+    today = datetime.now(timezone.utc).isoformat()
+    await db.add_clip(_make_clip("c1", timestamp=today, size_bytes=2_000_000))
+    await db.add_clip(_make_clip("c2", timestamp=today))
+    await db.star_clip("c1", True)
+    stats = await db.get_stats()
+    assert stats["total_count"] == 2
+    assert stats["today_count"] == 2
+    assert stats["starred_count"] == 1
+    assert stats["total_size_bytes"] >= 2_000_000
+
+
+async def test_get_camera_stats(db: ClipDatabase) -> None:
+    today = datetime.now(timezone.utc).isoformat()
+    await db.add_clip(_make_clip("c1", camera="Front Door", timestamp=today))
+    await db.add_clip(_make_clip("c2", camera="Front Door", timestamp=today))
+    await db.add_clip(_make_clip("c3", camera="Back Yard", timestamp=today))
+    cam_stats = await db.get_camera_stats()
+    cameras = {s["camera"]: s for s in cam_stats}
+    assert cameras["Front Door"]["total"] == 2
+    assert cameras["Back Yard"]["total"] == 1
+
+
+async def test_get_distinct_cameras(db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("c1", camera="A"))
+    await db.add_clip(_make_clip("c2", camera="B"))
+    await db.add_clip(_make_clip("c3", camera="A"))
+    cameras = await db.get_distinct_cameras()
+    assert cameras == ["A", "B"]
+
+
+async def test_get_distinct_tags(db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("c1"))
+    await db.set_tags("c1", ["cat", "dog"])
+    await db.add_clip(_make_clip("c2"))
+    await db.set_tags("c2", ["dog", "fish"])
+    tags = await db.get_distinct_tags()
+    assert "cat" in tags
+    assert "dog" in tags
+    assert "fish" in tags
+
+
+# ------------------------------------------------------------------
+# No-op when DB not initialised
+# ------------------------------------------------------------------
+
+async def test_operations_without_init_are_safe() -> None:
+    d = ClipDatabase(Path("/tmp/neveropened2.db"))
+    assert await d.get_clip("x") is None
+    assert await d.get_clips() == []
+    assert await d.count_clips() == 0
+    assert await d.get_stats() == {}
+    assert await d.get_camera_stats() == []
+    assert await d.get_clips_to_archive(30) == []
+    assert await d.star_clip("x", True) is False
+    assert await d.set_tags("x", []) is False
+    assert await d.delete_clip("x") is False

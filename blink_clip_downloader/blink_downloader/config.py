@@ -1,0 +1,183 @@
+"""Configuration loader and validator."""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+_LOGGER = logging.getLogger(__name__)
+
+OPTIONS_FILE = Path("/data/options.json")
+_VALID_LOG_LEVELS = frozenset({"debug", "info", "warning", "error"})
+
+
+@dataclass
+class AppConfig:
+    # --- Required ---
+    username: str
+    password: str
+
+    # --- Storage ---
+    download_path: Path = field(default_factory=lambda: Path("/share/blink-clips"))
+    organize_by_camera: bool = True
+    organize_by_date: bool = True
+    filename_format: str = "{camera}_{timestamp}"
+
+    # --- Polling ---
+    poll_interval: int = 300
+    max_clips_per_poll: int = 50
+
+    # --- Retention & quota ---
+    retention_days: int = 30
+    max_storage_gb: float = 10.0
+
+    # --- Filtering ---
+    camera_filter: list[str] = field(default_factory=list)
+    motion_only: bool = False
+    time_window_start: str = ""
+    time_window_end: str = ""
+
+    # --- Download options ---
+    download_thumbnails: bool = False
+    concurrent_downloads: int = 3
+    retry_attempts: int = 3
+    retry_delay: float = 5.0
+
+    # --- HA integration ---
+    notify_ha: bool = True
+    ha_notification_title: str = "Blink Clip Downloaded"
+
+    # --- Extra features ---
+    webhook_url: str = ""
+    create_clip_manifest: bool = True
+
+    # --- Library database ---
+    enable_library_db: bool = True
+
+    # --- Media server ---
+    enable_media_server: bool = True
+    media_server_port: int = 8099
+
+    # --- Instant download on HA motion events ---
+    watch_ha_events: bool = True
+    fast_poll_duration: int = 120
+    fast_poll_interval: int = 15
+    event_cameras: list[str] = field(default_factory=list)
+
+    # --- Clip filtering ---
+    min_clip_duration: int = 0
+
+    # --- Daily digest ---
+    digest_enabled: bool = True
+    digest_time: str = "08:00"
+
+    # --- ZIP archiving ---
+    archive_enabled: bool = False
+    archive_after_days: int = 60
+
+    # --- Logging ---
+    log_level: str = "info"
+
+    # --- Runtime (injected, not from options.json) ---
+    supervisor_token: str = field(
+        default_factory=lambda: os.environ.get("SUPERVISOR_TOKEN", "")
+    )
+    two_fa_timeout: float = 600.0
+
+
+def load_config(options_path: Path = OPTIONS_FILE) -> AppConfig:
+    """Load and validate configuration from *options_path*."""
+    if not options_path.exists():
+        raise FileNotFoundError(f"Options file not found: {options_path}")
+
+    with options_path.open() as fh:
+        data = json.load(fh)
+
+    return _parse_config(data)
+
+
+def _parse_config(data: dict) -> AppConfig:
+    """Parse a raw options dict into a validated :class:`AppConfig`."""
+    username = str(data.get("username", "")).strip()
+    if not username:
+        raise ValueError("username is required and cannot be empty")
+
+    password = str(data.get("password", "")).strip()
+    if not password:
+        raise ValueError("password is required and cannot be empty")
+
+    poll_interval = int(data.get("poll_interval", 300))
+    if not 30 <= poll_interval <= 3600:
+        raise ValueError(
+            f"poll_interval must be between 30 and 3600 seconds, got {poll_interval}"
+        )
+
+    retention_days = int(data.get("retention_days", 30))
+    if not 0 <= retention_days <= 365:
+        raise ValueError(
+            f"retention_days must be between 0 and 365, got {retention_days}"
+        )
+
+    max_clips = int(data.get("max_clips_per_poll", 50))
+    if not 1 <= max_clips <= 500:
+        raise ValueError(
+            f"max_clips_per_poll must be between 1 and 500, got {max_clips}"
+        )
+
+    log_level = str(data.get("log_level", "info")).lower()
+    if log_level not in _VALID_LOG_LEVELS:
+        _LOGGER.warning("Unknown log_level %r, falling back to 'info'", log_level)
+        log_level = "info"
+
+    camera_filter = [
+        c.strip()
+        for c in data.get("camera_filter", [])
+        if isinstance(c, str) and c.strip()
+    ]
+
+    return AppConfig(
+        username=username,
+        password=password,
+        download_path=Path(str(data.get("download_path", "/share/blink-clips"))),
+        organize_by_camera=bool(data.get("organize_by_camera", True)),
+        organize_by_date=bool(data.get("organize_by_date", True)),
+        filename_format=str(data.get("filename_format", "{camera}_{timestamp}")),
+        poll_interval=poll_interval,
+        max_clips_per_poll=max_clips,
+        retention_days=retention_days,
+        max_storage_gb=float(data.get("max_storage_gb", 10.0)),
+        camera_filter=camera_filter,
+        motion_only=bool(data.get("motion_only", False)),
+        time_window_start=str(data.get("time_window_start", "") or ""),
+        time_window_end=str(data.get("time_window_end", "") or ""),
+        download_thumbnails=bool(data.get("download_thumbnails", False)),
+        concurrent_downloads=max(1, min(10, int(data.get("concurrent_downloads", 3)))),
+        retry_attempts=max(1, min(10, int(data.get("retry_attempts", 3)))),
+        retry_delay=max(0.0, float(data.get("retry_delay", 5.0))),
+        notify_ha=bool(data.get("notify_ha", True)),
+        ha_notification_title=str(
+            data.get("ha_notification_title", "Blink Clip Downloaded")
+        ),
+        webhook_url=str(data.get("webhook_url", "") or ""),
+        create_clip_manifest=bool(data.get("create_clip_manifest", True)),
+        enable_library_db=bool(data.get("enable_library_db", True)),
+        enable_media_server=bool(data.get("enable_media_server", True)),
+        media_server_port=max(1024, min(65535, int(data.get("media_server_port", 8099)))),
+        watch_ha_events=bool(data.get("watch_ha_events", True)),
+        fast_poll_duration=max(10, int(data.get("fast_poll_duration", 120))),
+        fast_poll_interval=max(5, min(60, int(data.get("fast_poll_interval", 15)))),
+        event_cameras=[
+            c.strip()
+            for c in data.get("event_cameras", [])
+            if isinstance(c, str) and c.strip()
+        ],
+        min_clip_duration=max(0, int(data.get("min_clip_duration", 0))),
+        digest_enabled=bool(data.get("digest_enabled", True)),
+        digest_time=str(data.get("digest_time", "08:00")),
+        archive_enabled=bool(data.get("archive_enabled", False)),
+        archive_after_days=max(1, int(data.get("archive_after_days", 60))),
+        log_level=log_level,
+    )

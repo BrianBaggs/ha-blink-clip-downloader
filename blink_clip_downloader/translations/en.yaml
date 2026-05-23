@@ -1,0 +1,143 @@
+configuration:
+  username:
+    name: Blink Username
+    description: Your Blink account email address.
+  password:
+    name: Blink Password
+    description: Your Blink account password.
+  download_path:
+    name: Download Path
+    description: >-
+      Absolute path where clips are saved. Must be under /share/ so the
+      HA media browser can see them (e.g. /share/blink-clips).
+  organize_by_camera:
+    name: Organise by Camera
+    description: Create a sub-folder per camera name.
+  organize_by_date:
+    name: Organise by Date
+    description: Create a sub-folder per recording date (YYYY-MM-DD).
+  filename_format:
+    name: Filename Format
+    description: >-
+      Template for clip filenames. Available tokens: {camera}, {timestamp},
+      {date}, {time}, {id}. Extension (.mp4) is appended automatically.
+  poll_interval:
+    name: Poll Interval (seconds)
+    description: How often to check Blink for new clips (30–3600 s).
+  max_clips_per_poll:
+    name: Max Clips per Poll
+    description: Maximum number of clips downloaded in a single poll cycle.
+  retention_days:
+    name: Retention (days)
+    description: >-
+      Delete clips older than this many days. Set to 0 to keep all clips
+      forever.
+  max_storage_gb:
+    name: Storage Quota (GB)
+    description: >-
+      Stop downloading when the download folder exceeds this size. Set to 0
+      for unlimited.
+  camera_filter:
+    name: Camera Whitelist
+    description: >-
+      Only download from these cameras (exact names as shown in the Blink app).
+      Leave empty to download from all cameras.
+  motion_only:
+    name: Motion-Triggered Only
+    description: Skip clips that were not triggered by motion (PIR sensor).
+  time_window_start:
+    name: Time Window Start
+    description: >-
+      Only download clips recorded at or after this time (HH:MM, 24-h).
+      Leave blank to disable the filter.
+  time_window_end:
+    name: Time Window End
+    description: >-
+      Only download clips recorded at or before this time (HH:MM, 24-h).
+      Leave blank to disable the filter.
+  download_thumbnails:
+    name: Download Thumbnails
+    description: Also save the JPEG thumbnail alongside each clip.
+  concurrent_downloads:
+    name: Concurrent Downloads
+    description: Number of clips downloaded in parallel (1–10).
+  retry_attempts:
+    name: Retry Attempts
+    description: How many times to retry a failed download before skipping.
+  notify_ha:
+    name: HA Notifications
+    description: Send a persistent notification in Home Assistant when new clips arrive.
+  ha_notification_title:
+    name: Notification Title
+    description: Title used for Home Assistant persistent notifications.
+  webhook_url:
+    name: Webhook URL
+    description: >-
+      Optional HTTP(S) URL to POST clip metadata to after each successful
+      download. Leave blank to disable.
+  create_clip_manifest:
+    name: Create Clip Manifest
+    description: >-
+      Maintain a JSON manifest at /data/clip_manifest.json with metadata for
+      every downloaded clip.
+  min_clip_duration:
+    name: Minimum Clip Duration (seconds)
+    description: >-
+      Skip clips shorter than this duration in seconds. Set to 0 to keep all
+      clips regardless of length.
+  enable_library_db:
+    name: Enable Clip Library Database
+    description: >-
+      Store clip metadata in a SQLite database to power the web library UI,
+      daily digest, and archiving features.
+  enable_media_server:
+    name: Enable Web Library UI
+    description: >-
+      Start the built-in web server on the configured port so you can browse,
+      search, star, and stream saved clips from any browser.
+  media_server_port:
+    name: Web UI Port
+    description: TCP port for the clip library web server (default 8099).
+  watch_ha_events:
+    name: Watch HA Motion Events
+    description: >-
+      Subscribe to Home Assistant state_changed events and trigger an immediate
+      Blink poll when a Blink motion sensor fires, so clips appear within seconds.
+  fast_poll_duration:
+    name: Fast-Poll Duration (seconds)
+    description: >-
+      How long to stay in fast-poll mode after a motion event is detected
+      (default 120 s).
+  fast_poll_interval:
+    name: Fast-Poll Interval (seconds)
+    description: >-
+      Poll interval while in fast-poll mode triggered by a motion event
+      (default 15 s, min 5 s).
+  event_cameras:
+    name: Event Camera Filter
+    description: >-
+      Only trigger fast-poll mode for motion events from these cameras. Leave
+      empty to react to all Blink cameras.
+  digest_enabled:
+    name: Enable Daily Digest
+    description: >-
+      Send a daily Home Assistant notification summarising how many clips were
+      downloaded and how much storage is in use.
+  digest_time:
+    name: Daily Digest Time (HH:MM)
+    description: >-
+      Local time at which the daily digest notification is sent (24-hour format,
+      e.g. "08:00").
+  archive_enabled:
+    name: Enable ZIP Archiving
+    description: >-
+      Compress clips older than the archive threshold into monthly ZIP files to
+      reclaim disk space while retaining metadata.
+  archive_after_days:
+    name: Archive After (days)
+    description: >-
+      Clips older than this many days are compressed into a ZIP archive (only
+      when archiving is enabled).
+  log_level:
+    name: Log Level
+    description: Verbosity of add-on logs.

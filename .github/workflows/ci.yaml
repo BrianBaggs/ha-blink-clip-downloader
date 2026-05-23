@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install dependencies
+        working-directory: blink_clip_downloader
+        run: pip install -e ".[test]"
+
+      - name: Run tests with coverage
+        working-directory: blink_clip_downloader
+        run: |
+          pytest tests/ \
+            --cov=blink_downloader \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            -v
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: blink_clip_downloader/coverage.xml
+          fail_ci_if_error: false
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install linting tools
+        run: pip install ruff
+
+      - name: Ruff check
+        working-directory: blink_clip_downloader
+        run: ruff check blink_downloader/
+
+      - name: Ruff format check
+        working-directory: blink_clip_downloader
+        run: ruff format --check blink_downloader/

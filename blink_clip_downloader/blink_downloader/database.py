@@ -1,0 +1,324 @@
+"""SQLite-backed clip library with metadata, starring, tagging, and stats."""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+import aiosqlite
+
+_LOGGER = logging.getLogger(__name__)
+
+DEFAULT_DB_FILE = Path("/data/clip_library.db")
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS clips (
+    id            TEXT    PRIMARY KEY,
+    camera        TEXT    NOT NULL,
+    file_path     TEXT    NOT NULL,
+    timestamp     TEXT    NOT NULL,
+    size_bytes    INTEGER DEFAULT 0,
+    duration      INTEGER DEFAULT 0,
+    source        TEXT    DEFAULT '',
+    network_id    INTEGER DEFAULT 0,
+    starred       INTEGER DEFAULT 0,
+    tags          TEXT    DEFAULT '[]',
+    downloaded_at TEXT    NOT NULL,
+    archived      INTEGER DEFAULT 0,
+    archive_path  TEXT    DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_clips_camera    ON clips (camera);
+CREATE INDEX IF NOT EXISTS idx_clips_timestamp ON clips (timestamp);
+CREATE INDEX IF NOT EXISTS idx_clips_starred   ON clips (starred);
+CREATE INDEX IF NOT EXISTS idx_clips_archived  ON clips (archived);
+"""
+
+
+def _row_to_dict(row: aiosqlite.Row) -> dict[str, Any]:
+    d = dict(row)
+    d["starred"] = bool(d["starred"])
+    d["archived"] = bool(d["archived"])
+    try:
+        d["tags"] = json.loads(d.get("tags", "[]") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        d["tags"] = []
+    return d
+
+
+class ClipDatabase:
+    """Async wrapper around the SQLite clip library."""
+
+    def __init__(self, db_path: Path = DEFAULT_DB_FILE) -> None:
+        self._path = db_path
+        self._db: aiosqlite.Connection | None = None
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def init(self) -> None:
+        """Open the database and create tables if needed."""
+        self._db = await aiosqlite.connect(self._path)
+        self._db.row_factory = aiosqlite.Row
+        await self._db.executescript(_SCHEMA)
+        await self._db.commit()
+        _LOGGER.debug("Clip database opened at %s", self._path)
+
+    async def close(self) -> None:
+        if self._db:
+            await self._db.close()
+            self._db = None
+
+    # ------------------------------------------------------------------
+    # Writing
+    # ------------------------------------------------------------------
+
+    async def add_clip(self, clip: dict[str, Any]) -> None:
+        """Insert or ignore a clip record."""
+        if self._db is None:
+            return
+        await self._db.execute(
+            """
+            INSERT OR IGNORE INTO clips
+              (id, camera, file_path, timestamp, size_bytes, duration,
+               source, network_id, downloaded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(clip.get("id", "")),
+                str(clip.get("camera", "unknown")),
+                str(clip.get("path", "")),
+                str(clip.get("timestamp", "")),
+                int(clip.get("size_bytes", 0)),
+                int(clip.get("duration", 0)),
+                str(clip.get("source", "")),
+                int(clip.get("network_id", 0)),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        await self._db.commit()
+
+    async def star_clip(self, clip_id: str, starred: bool) -> bool:
+        """Star or unstar a clip. Returns True if the record was found."""
+        if self._db is None:
+            return False
+        cursor = await self._db.execute(
+            "UPDATE clips SET starred=? WHERE id=?",
+            (1 if starred else 0, clip_id),
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
+    async def set_tags(self, clip_id: str, tags: list[str]) -> bool:
+        """Replace the tag list for a clip."""
+        if self._db is None:
+            return False
+        cursor = await self._db.execute(
+            "UPDATE clips SET tags=? WHERE id=?",
+            (json.dumps(tags), clip_id),
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
+    async def mark_archived(self, clip_id: str, archive_path: str) -> None:
+        if self._db is None:
+            return
+        await self._db.execute(
+            "UPDATE clips SET archived=1, archive_path=? WHERE id=?",
+            (archive_path, clip_id),
+        )
+        await self._db.commit()
+
+    async def delete_clip(self, clip_id: str) -> bool:
+        """Remove a clip record from the database."""
+        if self._db is None:
+            return False
+        cursor = await self._db.execute(
+            "DELETE FROM clips WHERE id=?", (clip_id,)
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # Reading
+    # ------------------------------------------------------------------
+
+    async def get_clip(self, clip_id: str) -> dict[str, Any] | None:
+        """Return a single clip record or None."""
+        if self._db is None:
+            return None
+        async with self._db.execute(
+            "SELECT * FROM clips WHERE id=?", (clip_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        return _row_to_dict(row) if row else None
+
+    async def get_clips(
+        self,
+        camera: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        starred: bool | None = None,
+        source: str | None = None,
+        tag: str | None = None,
+        search: str | None = None,
+        archived: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Query clips with optional filters, newest first."""
+        if self._db is None:
+            return []
+
+        where: list[str] = [f"archived = {1 if archived else 0}"]
+        params: list[Any] = []
+
+        if camera and camera != "all":
+            where.append("LOWER(camera) = LOWER(?)")
+            params.append(camera)
+        if since:
+            where.append("timestamp >= ?")
+            params.append(since)
+        if until:
+            where.append("timestamp <= ?")
+            params.append(until)
+        if starred is not None:
+            where.append("starred = ?")
+            params.append(1 if starred else 0)
+        if source:
+            where.append("source = ?")
+            params.append(source)
+        if tag:
+            where.append("tags LIKE ?")
+            params.append(f'%"{tag}"%')
+        if search:
+            where.append("(LOWER(camera) LIKE LOWER(?) OR id LIKE ?)")
+            params += [f"%{search}%", f"%{search}%"]
+
+        sql = (
+            f"SELECT * FROM clips WHERE {' AND '.join(where)} "
+            f"ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+        )
+        params += [limit, offset]
+
+        async with self._db.execute(sql, params) as cursor:
+            rows = await cursor.fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    async def count_clips(self, camera: str | None = None, starred: bool | None = None) -> int:
+        if self._db is None:
+            return 0
+        where = ["archived=0"]
+        params: list[Any] = []
+        if camera and camera != "all":
+            where.append("LOWER(camera)=LOWER(?)")
+            params.append(camera)
+        if starred is not None:
+            where.append("starred=?")
+            params.append(1 if starred else 0)
+        async with self._db.execute(
+            f"SELECT COUNT(*) FROM clips WHERE {' AND '.join(where)}", params
+        ) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
+
+    async def get_clips_to_archive(self, older_than_days: int) -> list[dict[str, Any]]:
+        if self._db is None:
+            return []
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=older_than_days)
+        ).isoformat()
+        async with self._db.execute(
+            "SELECT * FROM clips WHERE archived=0 AND timestamp < ? ORDER BY timestamp",
+            (cutoff,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Statistics
+    # ------------------------------------------------------------------
+
+    async def get_stats(self) -> dict[str, Any]:
+        """Return aggregate statistics for the library."""
+        if self._db is None:
+            return {}
+
+        today = date.today().isoformat()
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        week_ago = (date.today() - timedelta(days=7)).isoformat()
+
+        queries = {
+            "total_count": "SELECT COUNT(*) FROM clips WHERE archived=0",
+            "starred_count": "SELECT COUNT(*) FROM clips WHERE starred=1",
+            "archived_count": "SELECT COUNT(*) FROM clips WHERE archived=1",
+            "total_size_bytes": "SELECT COALESCE(SUM(size_bytes),0) FROM clips",
+            "today_count": f"SELECT COUNT(*) FROM clips WHERE timestamp LIKE '{today}%'",
+            "yesterday_count": f"SELECT COUNT(*) FROM clips WHERE timestamp LIKE '{yesterday}%'",
+            "week_count": f"SELECT COUNT(*) FROM clips WHERE timestamp >= '{week_ago}'",
+        }
+
+        results: dict[str, Any] = {}
+        for key, sql in queries.items():
+            async with self._db.execute(sql) as cur:
+                row = await cur.fetchone()
+            results[key] = row[0] if row else 0
+
+        return results
+
+    async def get_camera_stats(self) -> list[dict[str, Any]]:
+        """Return per-camera clip counts, sizes, and activity."""
+        if self._db is None:
+            return []
+
+        today = date.today().isoformat()
+        week_ago = (date.today() - timedelta(days=7)).isoformat()
+
+        async with self._db.execute(
+            """
+            SELECT
+                camera,
+                COUNT(*) AS total,
+                COALESCE(SUM(size_bytes), 0) AS size_bytes,
+                SUM(CASE WHEN timestamp LIKE ? THEN 1 ELSE 0 END) AS today,
+                SUM(CASE WHEN timestamp >= ? THEN 1 ELSE 0 END) AS this_week,
+                MAX(timestamp) AS last_seen
+            FROM clips
+            WHERE archived=0
+            GROUP BY LOWER(camera)
+            ORDER BY total DESC
+            """,
+            (f"{today}%", week_ago),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        return [dict(r) for r in rows]
+
+    async def get_distinct_cameras(self) -> list[str]:
+        if self._db is None:
+            return []
+        async with self._db.execute(
+            "SELECT DISTINCT camera FROM clips WHERE archived=0 ORDER BY camera"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [r[0] for r in rows]
+
+    async def get_distinct_tags(self) -> list[str]:
+        """Return all unique tags used across clips (best-effort)."""
+        if self._db is None:
+            return []
+        async with self._db.execute(
+            "SELECT DISTINCT tags FROM clips WHERE tags != '[]' AND tags != ''"
+        ) as cur:
+            rows = await cur.fetchall()
+        all_tags: set[str] = set()
+        for (raw,) in rows:
+            try:
+                for t in json.loads(raw or "[]"):
+                    all_tags.add(t)
+            except json.JSONDecodeError:
+                pass
+        return sorted(all_tags)

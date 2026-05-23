@@ -1,0 +1,13 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Start the Blink Clip Downloader service.
+# Credentials and all options are read directly from /data/options.json by the
+# Python app; this script just launches it with the supervisor token in env.
+# ==============================================================================
+set -e
+
+bashio::log.info "Starting Blink Clip Downloader..."
+bashio::log.info "Download path: $(bashio::config 'download_path')"
+bashio::log.info "Poll interval: $(bashio::config 'poll_interval') seconds"
+
+exec python3 -m blink_downloader
