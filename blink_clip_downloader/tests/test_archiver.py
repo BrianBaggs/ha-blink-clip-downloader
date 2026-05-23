@@ -1,0 +1,166 @@
+"""Tests for ClipArchiver."""
+
+from __future__ import annotations
+
+import zipfile
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from blink_downloader.archiver import ClipArchiver
+
+
+def _make_archiver(
+    tmp_path: Path,
+    clips: list[dict],
+    enabled: bool = True,
+    archive_after_days: int = 30,
+) -> tuple[ClipArchiver, MagicMock]:
+    db = MagicMock()
+    db.get_clips_to_archive = AsyncMock(return_value=clips)
+    db.mark_archived = AsyncMock()
+
+    archiver = ClipArchiver(
+        db=db,
+        archive_dir=tmp_path / "archives",
+        archive_after_days=archive_after_days,
+        enabled=enabled,
+    )
+    return archiver, db
+
+
+def _old_ts(days: int = 60) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+# ------------------------------------------------------------------
+# Disabled
+# ------------------------------------------------------------------
+
+async def test_run_disabled_returns_zero(tmp_path: Path) -> None:
+    archiver, db = _make_archiver(tmp_path, clips=[{"id": "c1"}], enabled=False)
+    result = await archiver.run()
+    assert result == 0
+    db.get_clips_to_archive.assert_not_awaited()
+
+
+# ------------------------------------------------------------------
+# No clips to archive
+# ------------------------------------------------------------------
+
+async def test_run_no_clips_returns_zero(tmp_path: Path) -> None:
+    archiver, _ = _make_archiver(tmp_path, clips=[])
+    result = await archiver.run()
+    assert result == 0
+
+
+# ------------------------------------------------------------------
+# Normal archiving
+# ------------------------------------------------------------------
+
+async def test_run_archives_clip_into_zip(tmp_path: Path) -> None:
+    src = tmp_path / "Front_Door_2024-06-01.mp4"
+    src.write_bytes(b"fake video data")
+
+    clip = {
+        "id": "c1",
+        "camera": "Front Door",
+        "file_path": str(src),
+        "timestamp": "2024-06-01T08:00:00+00:00",
+    }
+    archiver, db = _make_archiver(tmp_path, clips=[clip])
+    result = await archiver.run()
+
+    assert result == 1
+    zip_path = tmp_path / "archives" / "blink_archive_2024-06.zip"
+    assert zip_path.exists()
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+    assert any("Front_Door_2024-06-01.mp4" in n for n in names)
+
+    # Original file should be deleted
+    assert not src.exists()
+
+
+async def test_run_marks_db_archived(tmp_path: Path) -> None:
+    src = tmp_path / "clip.mp4"
+    src.write_bytes(b"data")
+
+    clip = {"id": "c1", "camera": "Cam", "file_path": str(src), "timestamp": "2024-06-01T00:00:00+00:00"}
+    archiver, db = _make_archiver(tmp_path, clips=[clip])
+    await archiver.run()
+
+    db.mark_archived.assert_awaited_once()
+    call_args = db.mark_archived.call_args
+    assert call_args[0][0] == "c1"
+    assert "blink_archive_2024-06.zip" in call_args[0][1]
+
+
+async def test_run_archives_multiple_months(tmp_path: Path) -> None:
+    clips = []
+    for month, clip_id in [("2024-05", "c1"), ("2024-06", "c2")]:
+        src = tmp_path / f"{clip_id}.mp4"
+        src.write_bytes(b"data")
+        clips.append({
+            "id": clip_id,
+            "camera": "Cam",
+            "file_path": str(src),
+            "timestamp": f"{month}-01T00:00:00+00:00",
+        })
+
+    archiver, _ = _make_archiver(tmp_path, clips=clips)
+    result = await archiver.run()
+
+    assert result == 2
+    assert (tmp_path / "archives" / "blink_archive_2024-05.zip").exists()
+    assert (tmp_path / "archives" / "blink_archive_2024-06.zip").exists()
+
+
+async def test_run_missing_file_still_marks_archived(tmp_path: Path) -> None:
+    clip = {
+        "id": "c1",
+        "camera": "Cam",
+        "file_path": str(tmp_path / "missing.mp4"),  # does not exist
+        "timestamp": "2024-06-01T00:00:00+00:00",
+    }
+    archiver, db = _make_archiver(tmp_path, clips=[clip])
+    result = await archiver.run()
+
+    assert result == 1
+    db.mark_archived.assert_awaited_once()
+
+
+async def test_run_appends_to_existing_zip(tmp_path: Path) -> None:
+    archive_dir = tmp_path / "archives"
+    archive_dir.mkdir()
+    zip_path = archive_dir / "blink_archive_2024-06.zip"
+
+    # Pre-create a ZIP with one existing file
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("Cam/existing.mp4", "old data")
+
+    src = tmp_path / "new_clip.mp4"
+    src.write_bytes(b"new data")
+
+    clip = {"id": "c1", "camera": "Cam", "file_path": str(src), "timestamp": "2024-06-15T00:00:00+00:00"}
+    archiver, _ = _make_archiver(tmp_path, clips=[clip])
+    await archiver.run()
+
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+    assert any("existing.mp4" in n for n in names)
+    assert any("new_clip.mp4" in n for n in names)
+
+
+async def test_run_unknown_timestamp_uses_unknown_bucket(tmp_path: Path) -> None:
+    src = tmp_path / "clip.mp4"
+    src.write_bytes(b"data")
+
+    clip = {"id": "c1", "camera": "Cam", "file_path": str(src), "timestamp": ""}
+    archiver, _ = _make_archiver(tmp_path, clips=[clip])
+    result = await archiver.run()
+
+    assert result == 1
+    assert (tmp_path / "archives" / "blink_archive_unknown.zip").exists()

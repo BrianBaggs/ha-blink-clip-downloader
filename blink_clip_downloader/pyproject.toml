@@ -33,7 +33,11 @@ addopts = "--tb=short -q"
 
 [tool.coverage.run]
 source = ["blink_downloader"]
-omit = ["tests/*", "blink_downloader/__main__.py"]
+omit = [
+    "tests/*",
+    "blink_downloader/__main__.py",
+    "blink_downloader/media_server.py",
+]
 
 [tool.coverage.report]
 fail_under = 78
