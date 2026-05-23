@@ -441,3 +441,112 @@ async def test_thumbnail_returns_jpeg(
     resp = await client.get("/api/clips/th2/thumb")
     assert resp.status == 200
     assert resp.content_type == "image/jpeg"
+
+
+# ---------------------------------------------------------------------------
+# /api/auth/status
+# ---------------------------------------------------------------------------
+
+
+async def test_auth_status_default_connected(client: TestClient) -> None:
+    """Without an auth_state_getter the endpoint reports 'connected'."""
+    resp = await client.get("/api/auth/status")
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["state"] == "connected"
+
+
+async def test_auth_status_with_getter(
+    db: ClipDatabase, tmp_path: Path
+) -> None:
+    """auth_state_getter return value is forwarded to the client."""
+    server = MediaServer(
+        db=db,
+        download_path=tmp_path,
+        port=0,
+        auth_state_getter=lambda: {"state": "needs_2fa", "message": "Enter your code."},
+    )
+    tc = TestClient(TestServer(server._build_app()))
+    await tc.start_server()
+    try:
+        resp = await tc.get("/api/auth/status")
+        data = await resp.json()
+        assert data["state"] == "needs_2fa"
+        assert data["message"] == "Enter your code."
+    finally:
+        await tc.close()
+
+
+# ---------------------------------------------------------------------------
+# /api/auth/2fa
+# ---------------------------------------------------------------------------
+
+
+async def test_two_fa_submit_valid_code(
+    db: ClipDatabase, tmp_path: Path
+) -> None:
+    received: list[str] = []
+    server = MediaServer(
+        db=db,
+        download_path=tmp_path,
+        port=0,
+        two_fa_callback=received.append,
+    )
+    tc = TestClient(TestServer(server._build_app()))
+    await tc.start_server()
+    try:
+        resp = await tc.post(
+            "/api/auth/2fa",
+            json={"code": "123456"},
+        )
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["submitted"] is True
+        assert received == ["123456"]
+    finally:
+        await tc.close()
+
+
+async def test_two_fa_submit_non_numeric_rejected(
+    db: ClipDatabase, tmp_path: Path
+) -> None:
+    server = MediaServer(
+        db=db, download_path=tmp_path, port=0, two_fa_callback=lambda _: None
+    )
+    tc = TestClient(TestServer(server._build_app()))
+    await tc.start_server()
+    try:
+        resp = await tc.post("/api/auth/2fa", json={"code": "abc123"})
+        assert resp.status == 400
+    finally:
+        await tc.close()
+
+
+async def test_two_fa_submit_wrong_length_rejected(
+    db: ClipDatabase, tmp_path: Path
+) -> None:
+    server = MediaServer(
+        db=db, download_path=tmp_path, port=0, two_fa_callback=lambda _: None
+    )
+    tc = TestClient(TestServer(server._build_app()))
+    await tc.start_server()
+    try:
+        resp = await tc.post("/api/auth/2fa", json={"code": "1234"})
+        assert resp.status == 400
+    finally:
+        await tc.close()
+
+
+async def test_two_fa_no_callback_returns_503(client: TestClient) -> None:
+    """Without a two_fa_callback the endpoint returns 503."""
+    resp = await client.post("/api/auth/2fa", json={"code": "000000"})
+    assert resp.status == 503
+
+
+async def test_index_contains_twofa_overlay(client: TestClient) -> None:
+    """2FA overlay div is present in the served HTML."""
+    resp = await client.get("/")
+    body = await resp.text()
+    assert "twofa-overlay" in body
+    assert "twofa-input" in body
+    assert "twofa-submit" in body

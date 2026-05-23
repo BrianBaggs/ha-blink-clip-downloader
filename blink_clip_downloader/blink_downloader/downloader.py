@@ -55,6 +55,22 @@ class BlinkDownloader:
         self._db = db
         self._blink: Blink | None = None
         self._session: aiohttp.ClientSession | None = None
+        # Auth state exposed to the web UI.
+        self.auth_state: str = "disconnected"
+        self.auth_message: str = ""
+        # Set by submit_two_fa_code(); cleared after each use.
+        self._two_fa_event: asyncio.Event | None = None
+        self._two_fa_code: str | None = None
+
+    # ------------------------------------------------------------------
+    # Public: web-UI 2FA submission
+    # ------------------------------------------------------------------
+
+    def submit_two_fa_code(self, code: str) -> None:
+        """Accept a sanitised 6-digit 2FA code from the web UI."""
+        self._two_fa_code = code.strip()
+        if self._two_fa_event is not None:
+            self._two_fa_event.set()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -62,6 +78,8 @@ class BlinkDownloader:
 
     async def connect(self) -> None:
         """Authenticate with Blink, reusing cached tokens when possible."""
+        self.auth_state = "authenticating"
+        self.auth_message = "Connecting to Blink…"
         session = await self._get_session()
 
         login_data: dict[str, Any] = {
@@ -84,7 +102,13 @@ class BlinkDownloader:
             await self._blink.start()
         except BlinkTwoFARequiredError:
             await self._handle_2fa()
+        except Exception:
+            self.auth_state = "error"
+            self.auth_message = "Authentication failed. Check your Blink credentials."
+            raise
 
+        self.auth_state = "connected"
+        self.auth_message = ""
         self._persist_auth()
         _LOGGER.info("Connected to Blink (account_id=%s)", self._blink.account_id)
 
@@ -350,24 +374,53 @@ class BlinkDownloader:
     # ------------------------------------------------------------------
 
     async def _handle_2fa(self) -> None:
-        """Wait for the user to write a 2FA code to TWO_FA_FILE."""
-        _LOGGER.warning(
-            "Blink requires 2FA.  Write your 6-digit code to: %s  "
-            "The add-on will check every 10 seconds for up to %.0f minutes.",
-            TWO_FA_FILE,
-            self._config.two_fa_timeout / 60,
+        """Wait for a 2FA code from the web UI or the fallback file."""
+        self.auth_state = "needs_2fa"
+        self.auth_message = (
+            "Enter the 6-digit verification code sent to your registered device."
         )
+        _LOGGER.warning(
+            "Blink requires 2FA. Enter the code in the web UI or write it to: %s",
+            TWO_FA_FILE,
+        )
+
+        # Fresh event for this authentication attempt.
+        self._two_fa_event = asyncio.Event()
+        self._two_fa_code = None
 
         deadline = asyncio.get_event_loop().time() + self._config.two_fa_timeout
         while asyncio.get_event_loop().time() < deadline:
+            # --- Check web-UI submission first (code already set before event) ---
+            if self._two_fa_event.is_set():
+                code = self._two_fa_code or ""
+                self._two_fa_event.clear()
+                self._two_fa_code = None
+                if code:
+                    await self._blink.send_2fa_code(code)
+                    return
+
+            # --- File fallback (CLI / backwards compat) ---
             if TWO_FA_FILE.exists():
                 code = TWO_FA_FILE.read_text().strip()
                 if code:
                     TWO_FA_FILE.unlink(missing_ok=True)
                     await self._blink.send_2fa_code(code)
                     return
-            await asyncio.sleep(10)
 
+            # --- Wait for the event or poll timeout ---
+            remaining = deadline - asyncio.get_event_loop().time()
+            try:
+                await asyncio.wait_for(
+                    self._two_fa_event.wait(),
+                    timeout=min(2.0, max(0.01, remaining)),
+                )
+            except asyncio.TimeoutError:
+                pass
+
+        self.auth_state = "error"
+        self.auth_message = (
+            f"Verification code not provided within {self._config.two_fa_timeout:.0f}s."
+        )
         raise TwoFARequired(
             f"2FA code was not provided within {self._config.two_fa_timeout:.0f}s. "
             f"Write the code to {TWO_FA_FILE} and restart the add-on."

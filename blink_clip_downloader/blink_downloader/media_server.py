@@ -557,6 +557,42 @@ action:
   </div>
 </div>
 
+<!-- ── 2FA overlay (shown automatically when Blink requires verification) ── -->
+<div class="modal-bg" id="twofa-overlay" style="z-index:200">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-body" style="padding:1.8rem 1.6rem">
+      <div class="modal-title" style="font-size:1.08rem;margin-bottom:.5rem">🔐 Two-Factor Authentication</div>
+      <p style="color:var(--muted);font-size:.86rem;line-height:1.55;margin-bottom:1.2rem">
+        Blink has sent a verification code to your registered email address or phone.
+        Enter it below to complete sign-in.
+      </p>
+      <div style="display:flex;gap:.5rem;align-items:stretch">
+        <input id="twofa-input"
+               type="text"
+               inputmode="numeric"
+               pattern="[0-9]*"
+               maxlength="6"
+               placeholder="• • • • • •"
+               autocomplete="one-time-code"
+               style="flex:1;padding:.6rem .9rem;background:var(--card);
+                      border:1px solid var(--border);border-radius:var(--radius);
+                      color:var(--text);font-size:1.4rem;letter-spacing:.35em;
+                      text-align:center;font-family:monospace;outline:none;transition:.15s"
+               onfocus="this.style.borderColor='var(--accent)'"
+               onblur="this.style.borderColor='var(--border)'">
+        <button class="btn" id="twofa-submit" style="font-size:.9rem;padding:.6rem 1.1rem">
+          Verify
+        </button>
+      </div>
+      <div id="twofa-msg" style="margin-top:.75rem;font-size:.83rem;min-height:1.3rem;line-height:1.4"></div>
+      <p style="color:var(--muted);font-size:.76rem;margin-top:1rem;line-height:1.45">
+        Code not arriving? Check your spam folder or restart the add-on to request
+        a new code. Codes expire quickly.
+      </p>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1183,6 +1219,86 @@ document.querySelectorAll('.copy-btn').forEach(btn => {
   });
 });
 
+// ── 2FA overlay ────────────────────────────────────────────────────────────
+let _twofaState = 'disconnected';
+
+async function checkAuthStatus() {
+  try {
+    const s = await fetch(_R + '/api/auth/status').then(r => r.json());
+    const prev = _twofaState;
+    _twofaState = s.state || 'disconnected';
+    const overlay = $('twofa-overlay');
+    if (_twofaState === 'needs_2fa') {
+      overlay.classList.add('open');
+      if (prev !== 'needs_2fa') {
+        $('twofa-input').value = '';
+        $('twofa-msg').textContent = '';
+        setTimeout(() => $('twofa-input').focus(), 80);
+      }
+    } else {
+      if (prev === 'needs_2fa' && _twofaState === 'connected') {
+        overlay.classList.remove('open');
+        toast('Signed in to Blink ✓');
+        loadAll();
+      } else if (_twofaState !== 'needs_2fa') {
+        overlay.classList.remove('open');
+      }
+    }
+    if (_twofaState === 'error' && overlay.classList.contains('open')) {
+      $('twofa-msg').textContent = s.message || 'Authentication failed.';
+      $('twofa-msg').style.color = 'var(--danger)';
+    }
+  } catch {}
+}
+
+async function submitTwoFA() {
+  const raw = $('twofa-input').value.trim().replace(/\s/g, '');
+  if (!/^\d{6}$/.test(raw)) {
+    $('twofa-msg').textContent = 'Please enter exactly 6 digits.';
+    $('twofa-msg').style.color = 'var(--warn)';
+    $('twofa-input').focus();
+    return;
+  }
+  const btn = $('twofa-submit');
+  btn.disabled = true;
+  btn.textContent = '⏳ Verifying…';
+  $('twofa-msg').textContent = 'Submitting code…';
+  $('twofa-msg').style.color = 'var(--muted)';
+  try {
+    const resp = await fetch(_R + '/api/auth/2fa', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code: raw}),
+    });
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => 'Error');
+      $('twofa-msg').textContent = txt;
+      $('twofa-msg').style.color = 'var(--danger)';
+    } else {
+      $('twofa-msg').textContent = 'Code submitted — please wait…';
+      $('twofa-msg').style.color = 'var(--text)';
+      $('twofa-input').value = '';
+    }
+  } catch {
+    $('twofa-msg').textContent = 'Network error — could not submit code.';
+    $('twofa-msg').style.color = 'var(--danger)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Verify';
+  }
+}
+
+$('twofa-submit').addEventListener('click', submitTwoFA);
+$('twofa-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitTwoFA();
+  // Allow only digits, backspace, delete, arrow keys, tab
+  if (e.key.length === 1 && !/\d/.test(e.key)) e.preventDefault();
+});
+
+// Poll auth status every 3 seconds so the overlay appears / disappears promptly.
+checkAuthStatus();
+setInterval(checkAuthStatus, 3000);
+
 // ── Boot ───────────────────────────────────────────────────────────────────
 async function loadAll() {
   await Promise.all([loadStats(), loadCameras(), loadClips(0)]);
@@ -1215,11 +1331,15 @@ class MediaServer:
         download_path: Path,
         port: int,
         trigger_download: Callable[[], Awaitable[None]] | None = None,
+        two_fa_callback: Callable[[str], None] | None = None,
+        auth_state_getter: Callable[[], dict] | None = None,
     ) -> None:
         self._db = db
         self._download_path = download_path
         self._port = port
         self._trigger_download = trigger_download
+        self._two_fa_callback = two_fa_callback
+        self._auth_state_getter = auth_state_getter
         self._runner: web.AppRunner | None = None
         self.extra_status: dict = {}
 
@@ -1261,6 +1381,8 @@ class MediaServer:
         app.router.add_get("/api/tags", self._handle_tags)
         app.router.add_post("/api/clips/export-zip", self._handle_export_zip)
         app.router.add_post("/api/download-now", self._handle_download_now)
+        app.router.add_get("/api/auth/status", self._handle_auth_status)
+        app.router.add_post("/api/auth/2fa", self._handle_two_fa)
         return app
 
     # ------------------------------------------------------------------
@@ -1479,6 +1601,26 @@ class MediaServer:
             content_type="application/zip",
             headers={"Content-Disposition": 'attachment; filename="blink-clips.zip"'},
         )
+
+    async def _handle_auth_status(self, _request: web.Request) -> web.Response:
+        if self._auth_state_getter:
+            status = self._auth_state_getter()
+        else:
+            status = {"state": "connected", "message": ""}
+        return web.json_response(status)
+
+    async def _handle_two_fa(self, request: web.Request) -> web.Response:
+        if not self._two_fa_callback:
+            raise web.HTTPServiceUnavailable(text="2FA not available")
+        try:
+            body = await request.json()
+            code = str(body.get("code", "")).strip()
+        except Exception:  # noqa: BLE001
+            raise web.HTTPBadRequest(text="Invalid request body")
+        if not code.isdigit() or len(code) != 6:
+            raise web.HTTPBadRequest(text="Code must be exactly 6 digits")
+        self._two_fa_callback(code)
+        return web.json_response({"submitted": True})
 
     async def _handle_download_now(self, _request: web.Request) -> web.Response:
         if self._trigger_download:

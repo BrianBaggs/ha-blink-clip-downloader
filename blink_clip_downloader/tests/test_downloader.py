@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -290,6 +291,88 @@ async def test_handle_2fa_times_out(dl, tmp_path):
     with patch("blink_downloader.downloader.TWO_FA_FILE", missing_file):
         with pytest.raises(TwoFARequired):
             await dl._handle_2fa()
+
+
+async def test_handle_2fa_web_ui_code(dl, tmp_path):
+    """Code submitted via submit_two_fa_code() is picked up by _handle_2fa."""
+    missing_file = tmp_path / "no_2fa.txt"
+    dl._blink = AsyncMock()
+    dl._blink.send_2fa_code = AsyncMock()
+    dl._config.two_fa_timeout = 30.0
+
+    async def _submit_concurrently():
+        # Spin until the event is created inside _handle_2fa, then submit.
+        while dl._two_fa_event is None:
+            await asyncio.sleep(0)
+        dl.submit_two_fa_code("654321")
+
+    with patch("blink_downloader.downloader.TWO_FA_FILE", missing_file):
+        await asyncio.gather(dl._handle_2fa(), _submit_concurrently())
+
+    dl._blink.send_2fa_code.assert_awaited_once_with("654321")
+
+
+def test_submit_two_fa_code_sets_event_and_code(dl):
+    """submit_two_fa_code stores the code and fires the event."""
+    dl._two_fa_event = asyncio.Event()
+    dl.submit_two_fa_code("  999888  ")  # whitespace should be stripped
+    assert dl._two_fa_code == "999888"
+    assert dl._two_fa_event.is_set()
+
+
+def test_submit_two_fa_code_without_event_does_not_raise(dl):
+    """submit_two_fa_code is safe to call before _handle_2fa initialises the event."""
+    assert dl._two_fa_event is None
+    dl.submit_two_fa_code("111222")  # must not raise
+    assert dl._two_fa_code == "111222"
+
+
+async def test_handle_2fa_sets_auth_state(dl, tmp_path):
+    """_handle_2fa sets auth_state to 'needs_2fa' and resets it on success."""
+    two_fa_path = tmp_path / "code.txt"
+    two_fa_path.write_text("000000")
+    dl._blink = AsyncMock()
+    dl._blink.send_2fa_code = AsyncMock()
+    dl._config.two_fa_timeout = 30.0
+
+    with patch("blink_downloader.downloader.TWO_FA_FILE", two_fa_path):
+        await dl._handle_2fa()
+
+    # After a successful _handle_2fa the state is still 'needs_2fa'
+    # (connect() is responsible for setting it to 'connected').
+    assert dl.auth_state == "needs_2fa"
+
+
+async def test_handle_2fa_sets_error_state_on_timeout(dl, tmp_path):
+    missing_file = tmp_path / "no.txt"
+    dl._blink = AsyncMock()
+    dl._config.two_fa_timeout = 0.05
+
+    with patch("blink_downloader.downloader.TWO_FA_FILE", missing_file):
+        with pytest.raises(TwoFARequired):
+            await dl._handle_2fa()
+
+    assert dl.auth_state == "error"
+
+
+async def test_connect_sets_auth_state_connected(dl, tmp_path):
+    """connect() sets auth_state to 'connected' on success."""
+    missing_auth = tmp_path / "no_auth.json"
+
+    mock_blink = AsyncMock()
+    mock_blink.start = AsyncMock()
+    mock_blink.account_id = 7
+    mock_blink.auth = MagicMock()
+    mock_blink.auth.login_attributes = {}
+
+    with (
+        patch("blink_downloader.downloader.AUTH_FILE", missing_auth),
+        patch("blink_downloader.downloader.Blink", return_value=mock_blink),
+        patch("blink_downloader.downloader.Auth"),
+    ):
+        await dl.connect()
+
+    assert dl.auth_state == "connected"
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/base-python:3.12
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.20
 FROM ${BUILD_FROM}
 
 # BUILD_ARCH is injected by the HA build system for multi-arch images.

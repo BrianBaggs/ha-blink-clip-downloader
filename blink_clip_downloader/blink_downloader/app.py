@@ -72,6 +72,11 @@ class BlinkClipDownloaderApp:
             download_path=config.download_path,
             port=config.media_server_port,
             trigger_download=self._trigger_immediate_download,
+            two_fa_callback=self._downloader.submit_two_fa_code,
+            auth_state_getter=lambda: {
+                "state": self._downloader.auth_state,
+                "message": self._downloader.auth_message,
+            },
         )
         self._event_watcher = HAEventWatcher(
             supervisor_token=config.supervisor_token,
@@ -117,6 +122,15 @@ class BlinkClipDownloaderApp:
         if self._config.enable_library_db:
             await self._db.init()
 
+        # Start the media server BEFORE connecting to Blink so the 2FA UI is
+        # available when Blink requires a verification code.
+        if self._config.enable_media_server:
+            self._bg_tasks.append(
+                asyncio.create_task(self._media_server.start(), name="media_server")
+            )
+            # Yield once so the server task can begin binding before we block on auth.
+            await asyncio.sleep(0)
+
         # Connect to Blink.
         try:
             await self._downloader.connect()
@@ -141,11 +155,6 @@ class BlinkClipDownloaderApp:
             "account_id": getattr(self._downloader._blink, "account_id", None),
         }
 
-        # Start background services.
-        if self._config.enable_media_server:
-            self._bg_tasks.append(
-                asyncio.create_task(self._media_server.start(), name="media_server")
-            )
         if self._config.watch_ha_events and self._config.supervisor_token:
             self._bg_tasks.append(
                 asyncio.create_task(self._event_watcher.start(), name="event_watcher")
