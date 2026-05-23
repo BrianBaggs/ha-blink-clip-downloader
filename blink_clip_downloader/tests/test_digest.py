@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 from blink_downloader.digest import DailyDigest
 
@@ -49,6 +48,7 @@ def _make_digest(
 # ------------------------------------------------------------------
 # check_and_send logic
 # ------------------------------------------------------------------
+
 
 async def test_check_and_send_disabled_does_nothing(tmp_path: Path) -> None:
     digest, notifier, _ = _make_digest(tmp_path, enabled=False)
@@ -108,13 +108,16 @@ async def test_check_and_send_invalid_time_skips(tmp_path: Path) -> None:
 # send
 # ------------------------------------------------------------------
 
+
 async def test_send_formats_message(tmp_path: Path) -> None:
     digest, notifier, _ = _make_digest(tmp_path)
     await digest.send()
 
     notifier.notify.assert_awaited_once()
     call_kwargs = notifier.notify.call_args
-    message = call_kwargs[0][0] if call_kwargs[0] else call_kwargs.kwargs.get("message", "")
+    message = (
+        call_kwargs[0][0] if call_kwargs[0] else call_kwargs.kwargs.get("message", "")
+    )
     # Verify key stats appear in the message
     assert "5" in message or "42" in message
     assert "Blink Daily Digest" in (call_kwargs.kwargs.get("title", "") or "")
@@ -131,6 +134,7 @@ async def test_send_includes_camera_breakdown(tmp_path: Path) -> None:
 # ------------------------------------------------------------------
 # State file persistence
 # ------------------------------------------------------------------
+
 
 def test_load_last_sent_missing_file(tmp_path: Path) -> None:
     digest, _, _ = _make_digest(tmp_path)

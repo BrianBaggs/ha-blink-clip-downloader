@@ -1,0 +1,443 @@
+"""Tests for MediaServer REST API endpoints."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from aiohttp.test_utils import TestClient, TestServer
+
+from blink_downloader.database import ClipDatabase
+from blink_downloader.media_server import MediaServer
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def db(tmp_path: Path) -> ClipDatabase:
+    d = ClipDatabase(tmp_path / "test.db")
+    await d.init()
+    yield d
+    await d.close()
+
+
+def _make_clip(clip_id: str = "c1", camera: str = "Front Door", **kw) -> dict:
+    return {
+        "id": clip_id,
+        "camera": camera,
+        "path": kw.get("path", f"/data/{clip_id}.mp4"),
+        "timestamp": kw.get("timestamp", "2024-06-01T08:00:00+00:00"),
+        "size_bytes": kw.get("size_bytes", 1_048_576),
+        "duration": kw.get("duration", 5),
+        "source": kw.get("source", "pir"),
+        "network_id": kw.get("network_id", 1),
+    }
+
+
+@pytest.fixture
+async def client(db: ClipDatabase, tmp_path: Path) -> TestClient:
+    server = MediaServer(db=db, download_path=tmp_path, port=0)
+    app = server._build_app()
+    # Inject the server instance so handlers can reference self._db etc.
+    # We expose the server via the app's router directly.
+    tc = TestClient(TestServer(app))
+    await tc.start_server()
+    yield tc
+    await tc.close()
+
+
+# ---------------------------------------------------------------------------
+# /health
+# ---------------------------------------------------------------------------
+
+
+async def test_health(client: TestClient) -> None:
+    resp = await client.get("/health")
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# / (index)
+# ---------------------------------------------------------------------------
+
+
+async def test_index_returns_html(client: TestClient) -> None:
+    resp = await client.get("/")
+    assert resp.status == 200
+    assert "text/html" in resp.content_type
+    body = await resp.text()
+    assert "Blink Clip Library" in body
+    assert "video.js" in body
+
+
+async def test_index_has_security_headers(client: TestClient) -> None:
+    resp = await client.get("/")
+    assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+    assert resp.headers.get("X-Frame-Options") == "SAMEORIGIN"
+    assert "Content-Security-Policy" in resp.headers
+
+
+# ---------------------------------------------------------------------------
+# /api/clips
+# ---------------------------------------------------------------------------
+
+
+async def test_list_clips_empty(client: TestClient) -> None:
+    resp = await client.get("/api/clips")
+    assert resp.status == 200
+    assert await resp.json() == []
+
+
+async def test_list_clips_returns_data(client: TestClient, db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("x1"))
+    await db.add_clip(_make_clip("x2", camera="Back Yard"))
+    resp = await client.get("/api/clips")
+    assert resp.status == 200
+    data = await resp.json()
+    assert len(data) == 2
+
+
+async def test_list_clips_camera_filter(client: TestClient, db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("a", camera="Front Door"))
+    await db.add_clip(_make_clip("b", camera="Back Yard"))
+    resp = await client.get("/api/clips?camera=front+door")
+    data = await resp.json()
+    assert all(c["camera"] == "Front Door" for c in data)
+    assert len(data) == 1
+
+
+async def test_list_clips_starred_filter(client: TestClient, db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("s1"))
+    await db.add_clip(_make_clip("s2"))
+    await db.star_clip("s1", True)
+    resp = await client.get("/api/clips?starred=1")
+    data = await resp.json()
+    assert len(data) == 1
+    assert data[0]["id"] == "s1"
+
+
+async def test_list_clips_sort_param(client: TestClient, db: ClipDatabase) -> None:
+    for i in range(3):
+        await db.add_clip(
+            _make_clip(f"t{i}", timestamp=f"2024-06-0{i + 1}T00:00:00+00:00")
+        )
+    resp = await client.get("/api/clips?sort=oldest")
+    data = await resp.json()
+    assert data[0]["id"] == "t0"
+
+
+# ---------------------------------------------------------------------------
+# /api/clips/{id}
+# ---------------------------------------------------------------------------
+
+
+async def test_get_clip_found(client: TestClient, db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("gc1"))
+    resp = await client.get("/api/clips/gc1")
+    assert resp.status == 200
+    assert (await resp.json())["id"] == "gc1"
+
+
+async def test_get_clip_not_found(client: TestClient) -> None:
+    resp = await client.get("/api/clips/nope")
+    assert resp.status == 404
+
+
+# ---------------------------------------------------------------------------
+# /api/clips/{id}/star
+# ---------------------------------------------------------------------------
+
+
+async def test_star_clip(client: TestClient, db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("st1"))
+    resp = await client.put(
+        "/api/clips/st1/star",
+        json={"starred": True},
+    )
+    assert resp.status == 200
+    clip = await db.get_clip("st1")
+    assert clip["starred"] is True
+
+
+async def test_star_clip_not_found(client: TestClient) -> None:
+    resp = await client.put("/api/clips/missing/star", json={"starred": True})
+    assert resp.status == 404
+
+
+# ---------------------------------------------------------------------------
+# /api/clips/{id}/tags
+# ---------------------------------------------------------------------------
+
+
+async def test_set_tags(client: TestClient, db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("tg1"))
+    resp = await client.put("/api/clips/tg1/tags", json={"tags": ["cat", "dog"]})
+    assert resp.status == 200
+    clip = await db.get_clip("tg1")
+    assert set(clip["tags"]) == {"cat", "dog"}
+
+
+async def test_set_tags_bad_json(client: TestClient) -> None:
+    resp = await client.put(
+        "/api/clips/tg1/tags",
+        data=b"not json",
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status == 400
+
+
+# ---------------------------------------------------------------------------
+# /api/clips/{id} DELETE
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_clip_no_file(client: TestClient, db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("del1", path="/nonexistent/del1.mp4"))
+    resp = await client.delete("/api/clips/del1")
+    assert resp.status == 200
+    assert await db.get_clip("del1") is None
+
+
+async def test_delete_clip_with_file(
+    client: TestClient, db: ClipDatabase, tmp_path: Path
+) -> None:
+    fp = tmp_path / "del2.mp4"
+    fp.write_bytes(b"fake video")
+    await db.add_clip(_make_clip("del2", path=str(fp)))
+    resp = await client.delete("/api/clips/del2")
+    assert resp.status == 200
+    assert not fp.exists()
+
+
+async def test_delete_clip_not_found(client: TestClient) -> None:
+    resp = await client.delete("/api/clips/ghost")
+    assert resp.status == 404
+
+
+# ---------------------------------------------------------------------------
+# /api/cameras
+# ---------------------------------------------------------------------------
+
+
+async def test_cameras_empty(client: TestClient) -> None:
+    resp = await client.get("/api/cameras")
+    assert resp.status == 200
+    assert await resp.json() == []
+
+
+async def test_cameras_returns_stats(client: TestClient, db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("cam1", camera="Front Door"))
+    await db.add_clip(_make_clip("cam2", camera="Back Yard"))
+    resp = await client.get("/api/cameras")
+    data = await resp.json()
+    cameras = {c["camera"] for c in data}
+    assert "Front Door" in cameras
+    assert "Back Yard" in cameras
+
+
+# ---------------------------------------------------------------------------
+# /api/stats
+# ---------------------------------------------------------------------------
+
+
+async def test_stats_returns_counts(client: TestClient, db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("s1"))
+    resp = await client.get("/api/stats")
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["total_count"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# /api/activity
+# ---------------------------------------------------------------------------
+
+
+async def test_activity_empty(client: TestClient) -> None:
+    resp = await client.get("/api/activity")
+    assert resp.status == 200
+    assert await resp.json() == []
+
+
+async def test_activity_default_days(client: TestClient, db: ClipDatabase) -> None:
+    from datetime import datetime, timezone
+
+    ts = datetime.now(timezone.utc).isoformat()
+    await db.add_clip(_make_clip("act1", timestamp=ts))
+    resp = await client.get("/api/activity?days=1")
+    data = await resp.json()
+    assert len(data) >= 1
+    assert "count" in data[0]
+
+
+async def test_activity_invalid_days_falls_back(client: TestClient) -> None:
+    resp = await client.get("/api/activity?days=notanumber")
+    assert resp.status == 200  # falls back to 7 days, no error
+
+
+# ---------------------------------------------------------------------------
+# /api/tags
+# ---------------------------------------------------------------------------
+
+
+async def test_tags_empty(client: TestClient) -> None:
+    resp = await client.get("/api/tags")
+    assert resp.status == 200
+    assert await resp.json() == []
+
+
+async def test_tags_returns_distinct_tags(client: TestClient, db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("t1"))
+    await db.add_clip(_make_clip("t2"))
+    await db.set_tags("t1", ["outdoor", "motion"])
+    await db.set_tags("t2", ["outdoor", "night"])
+    resp = await client.get("/api/tags")
+    tags = await resp.json()
+    assert set(tags) == {"outdoor", "motion", "night"}
+
+
+# ---------------------------------------------------------------------------
+# /api/clips/export-zip
+# ---------------------------------------------------------------------------
+
+
+async def test_export_zip_no_files_on_disk(
+    client: TestClient, db: ClipDatabase
+) -> None:
+    await db.add_clip(_make_clip("z1", path="/nonexistent/z1.mp4"))
+    resp = await client.post("/api/clips/export-zip", json={"ids": ["z1"]})
+    assert resp.status == 404
+
+
+async def test_export_zip_downloads_zip(
+    client: TestClient, db: ClipDatabase, tmp_path: Path
+) -> None:
+    import zipfile
+
+    fp = tmp_path / "clip1.mp4"
+    fp.write_bytes(b"fake video data")
+    await db.add_clip(_make_clip("z2", path=str(fp)))
+
+    resp = await client.post("/api/clips/export-zip", json={"ids": ["z2"]})
+    assert resp.status == 200
+    assert resp.content_type == "application/zip"
+
+    body = await resp.read()
+    with zipfile.ZipFile(__import__("io").BytesIO(body)) as zf:
+        names = zf.namelist()
+    assert "clip1.mp4" in names
+
+
+async def test_export_zip_empty_ids(client: TestClient) -> None:
+    resp = await client.post("/api/clips/export-zip", json={"ids": []})
+    assert resp.status == 400
+
+
+async def test_export_zip_bad_json(client: TestClient) -> None:
+    resp = await client.post(
+        "/api/clips/export-zip",
+        data=b"not json",
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status == 400
+
+
+# ---------------------------------------------------------------------------
+# /api/download-now
+# ---------------------------------------------------------------------------
+
+
+async def test_download_now_triggers_callback(db: ClipDatabase, tmp_path: Path) -> None:
+    triggered = []
+
+    async def fake_trigger():
+        triggered.append(True)
+
+    server = MediaServer(
+        db=db, download_path=tmp_path, port=0, trigger_download=fake_trigger
+    )
+    app = server._build_app()
+    tc = TestClient(TestServer(app))
+    await tc.start_server()
+    try:
+        resp = await tc.post("/api/download-now")
+        assert resp.status == 200
+        assert triggered == [True]
+    finally:
+        await tc.close()
+
+
+async def test_download_now_no_callback_touches_trigger_file(
+    client: TestClient, tmp_path: Path
+) -> None:
+    resp = await client.post("/api/download-now")
+    assert resp.status == 200
+
+
+# ---------------------------------------------------------------------------
+# /api/clips/{id}/stream — Range request
+# ---------------------------------------------------------------------------
+
+
+async def test_stream_clip_not_found(client: TestClient) -> None:
+    resp = await client.get("/api/clips/noclip/stream")
+    assert resp.status == 404
+
+
+async def test_stream_clip_file_missing(client: TestClient, db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("nofile", path="/no/such/file.mp4"))
+    resp = await client.get("/api/clips/nofile/stream")
+    assert resp.status == 404
+
+
+async def test_stream_clip_full(
+    client: TestClient, db: ClipDatabase, tmp_path: Path
+) -> None:
+    fp = tmp_path / "vid.mp4"
+    fp.write_bytes(b"X" * 1024)
+    await db.add_clip(_make_clip("vid1", path=str(fp)))
+    resp = await client.get("/api/clips/vid1/stream")
+    assert resp.status == 200
+    body = await resp.read()
+    assert body == b"X" * 1024
+
+
+async def test_stream_clip_range_request(
+    client: TestClient, db: ClipDatabase, tmp_path: Path
+) -> None:
+    fp = tmp_path / "range.mp4"
+    fp.write_bytes(bytes(range(256)))
+    await db.add_clip(_make_clip("range1", path=str(fp)))
+    resp = await client.get("/api/clips/range1/stream", headers={"Range": "bytes=0-9"})
+    assert resp.status == 206
+    body = await resp.read()
+    assert body == bytes(range(10))
+
+
+# ---------------------------------------------------------------------------
+# /api/clips/{id}/thumb
+# ---------------------------------------------------------------------------
+
+
+async def test_thumbnail_not_found(client: TestClient, db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("th1", path="/data/th1.mp4"))
+    resp = await client.get("/api/clips/th1/thumb")
+    assert resp.status == 404
+
+
+async def test_thumbnail_returns_jpeg(
+    client: TestClient, db: ClipDatabase, tmp_path: Path
+) -> None:
+    fp = tmp_path / "thumb.mp4"
+    fp.write_bytes(b"vid")
+    thumb = tmp_path / "thumb.jpg"
+    thumb.write_bytes(b"\xff\xd8\xff" + b"\x00" * 16)  # minimal JPEG header
+    await db.add_clip(_make_clip("th2", path=str(fp)))
+    resp = await client.get("/api/clips/th2/thumb")
+    assert resp.status == 200
+    assert resp.content_type == "image/jpeg"

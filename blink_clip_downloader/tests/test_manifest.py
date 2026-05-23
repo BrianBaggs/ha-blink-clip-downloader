@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-import pytest
 
 from blink_downloader.manifest import ClipManifest
 
@@ -61,5 +59,6 @@ def test_append_adds_recorded_at(tmp_path):
     record = m.read_all()[0]
     # recorded_at should be a valid ISO datetime string
     from datetime import datetime
+
     dt = datetime.fromisoformat(record["recorded_at"])
     assert dt is not None

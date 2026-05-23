@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -230,9 +229,7 @@ async def test_download_new_clips_skips_already_tracked(dl, tracker, sample_clip
     dl._tracker = tracker
 
     dl._blink = MagicMock()
-    with patch.object(
-        dl, "_fetch_clip_list", AsyncMock(return_value=[sample_clip])
-    ):
+    with patch.object(dl, "_fetch_clip_list", AsyncMock(return_value=[sample_clip])):
         results = await dl.download_new_clips()
 
     assert results == []
@@ -250,8 +247,10 @@ async def test_download_new_clips_respects_max_clips(dl, sample_clip):
         downloaded.append(clip["id"])
         return {"id": str(clip["id"]), "camera": "Cam", "path": "/x", "timestamp": "t"}
 
-    with patch.object(dl, "_fetch_clip_list", AsyncMock(return_value=clips)), \
-         patch.object(dl, "_download_clip", side_effect=_fake_download):
+    with (
+        patch.object(dl, "_fetch_clip_list", AsyncMock(return_value=clips)),
+        patch.object(dl, "_download_clip", side_effect=_fake_download),
+    ):
         await dl.download_new_clips()
 
     assert len(downloaded) == 2
@@ -309,9 +308,11 @@ async def test_connect_uses_cached_credentials(dl, tmp_path):
     mock_blink.auth = MagicMock()
     mock_blink.auth.login_attributes = {"token": "cached_token"}
 
-    with patch("blink_downloader.downloader.AUTH_FILE", auth_file), \
-         patch("blink_downloader.downloader.Blink", return_value=mock_blink), \
-         patch("blink_downloader.downloader.Auth") as MockAuth:
+    with (
+        patch("blink_downloader.downloader.AUTH_FILE", auth_file),
+        patch("blink_downloader.downloader.Blink", return_value=mock_blink),
+        patch("blink_downloader.downloader.Auth") as MockAuth,
+    ):
         await dl.connect()
 
     # Auth was called with merged login_data including the cached token
@@ -329,9 +330,11 @@ async def test_connect_proceeds_without_cached_file(dl, tmp_path):
     mock_blink.auth = MagicMock()
     mock_blink.auth.login_attributes = {}
 
-    with patch("blink_downloader.downloader.AUTH_FILE", missing_auth), \
-         patch("blink_downloader.downloader.Blink", return_value=mock_blink), \
-         patch("blink_downloader.downloader.Auth") as MockAuth:
+    with (
+        patch("blink_downloader.downloader.AUTH_FILE", missing_auth),
+        patch("blink_downloader.downloader.Blink", return_value=mock_blink),
+        patch("blink_downloader.downloader.Auth") as MockAuth,
+    ):
         await dl.connect()
 
     call_kwargs = MockAuth.call_args[1]
@@ -405,5 +408,7 @@ def test_persist_auth_handles_exception(dl):
     dl._blink = MagicMock()
     dl._blink.auth.login_attributes = None  # will cause json.dumps to fail
 
-    with patch("blink_downloader.downloader.AUTH_FILE", Path("/nonexistent/deep/auth.json")):
+    with patch(
+        "blink_downloader.downloader.AUTH_FILE", Path("/nonexistent/deep/auth.json")
+    ):
         dl._persist_auth()  # no exception

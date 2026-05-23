@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from blink_downloader.archiver import ClipArchiver
 
@@ -39,6 +38,7 @@ def _old_ts(days: int = 60) -> str:
 # Disabled
 # ------------------------------------------------------------------
 
+
 async def test_run_disabled_returns_zero(tmp_path: Path) -> None:
     archiver, db = _make_archiver(tmp_path, clips=[{"id": "c1"}], enabled=False)
     result = await archiver.run()
@@ -50,6 +50,7 @@ async def test_run_disabled_returns_zero(tmp_path: Path) -> None:
 # No clips to archive
 # ------------------------------------------------------------------
 
+
 async def test_run_no_clips_returns_zero(tmp_path: Path) -> None:
     archiver, _ = _make_archiver(tmp_path, clips=[])
     result = await archiver.run()
@@ -59,6 +60,7 @@ async def test_run_no_clips_returns_zero(tmp_path: Path) -> None:
 # ------------------------------------------------------------------
 # Normal archiving
 # ------------------------------------------------------------------
+
 
 async def test_run_archives_clip_into_zip(tmp_path: Path) -> None:
     src = tmp_path / "Front_Door_2024-06-01.mp4"
@@ -88,7 +90,12 @@ async def test_run_marks_db_archived(tmp_path: Path) -> None:
     src = tmp_path / "clip.mp4"
     src.write_bytes(b"data")
 
-    clip = {"id": "c1", "camera": "Cam", "file_path": str(src), "timestamp": "2024-06-01T00:00:00+00:00"}
+    clip = {
+        "id": "c1",
+        "camera": "Cam",
+        "file_path": str(src),
+        "timestamp": "2024-06-01T00:00:00+00:00",
+    }
     archiver, db = _make_archiver(tmp_path, clips=[clip])
     await archiver.run()
 
@@ -103,12 +110,14 @@ async def test_run_archives_multiple_months(tmp_path: Path) -> None:
     for month, clip_id in [("2024-05", "c1"), ("2024-06", "c2")]:
         src = tmp_path / f"{clip_id}.mp4"
         src.write_bytes(b"data")
-        clips.append({
-            "id": clip_id,
-            "camera": "Cam",
-            "file_path": str(src),
-            "timestamp": f"{month}-01T00:00:00+00:00",
-        })
+        clips.append(
+            {
+                "id": clip_id,
+                "camera": "Cam",
+                "file_path": str(src),
+                "timestamp": f"{month}-01T00:00:00+00:00",
+            }
+        )
 
     archiver, _ = _make_archiver(tmp_path, clips=clips)
     result = await archiver.run()
@@ -144,7 +153,12 @@ async def test_run_appends_to_existing_zip(tmp_path: Path) -> None:
     src = tmp_path / "new_clip.mp4"
     src.write_bytes(b"new data")
 
-    clip = {"id": "c1", "camera": "Cam", "file_path": str(src), "timestamp": "2024-06-15T00:00:00+00:00"}
+    clip = {
+        "id": "c1",
+        "camera": "Cam",
+        "file_path": str(src),
+        "timestamp": "2024-06-15T00:00:00+00:00",
+    }
     archiver, _ = _make_archiver(tmp_path, clips=[clip])
     await archiver.run()
 

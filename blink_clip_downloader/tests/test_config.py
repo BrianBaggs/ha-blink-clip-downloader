@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
-from blink_downloader.config import AppConfig, _parse_config, load_config
+from blink_downloader.config import _parse_config, load_config
 
 
 # ---------------------------------------------------------------------------
@@ -122,9 +121,7 @@ def test_camera_filter_skips_empty_strings():
 
 
 def test_concurrent_downloads_clamped():
-    cfg = _parse_config(
-        {"username": "u", "password": "p", "concurrent_downloads": 999}
-    )
+    cfg = _parse_config({"username": "u", "password": "p", "concurrent_downloads": 999})
     assert cfg.concurrent_downloads == 10
 
 
