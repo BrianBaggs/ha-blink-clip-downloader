@@ -11,6 +11,7 @@ dependencies = [
     "blinkpy>=0.23.0",
     "aiohttp>=3.9.0",
     "aiofiles>=23.2.1",
+    "aiosqlite>=0.20.0",
     "python-slugify>=8.0.1",
     "python-dateutil>=2.9.0",
 ]
@@ -40,5 +41,5 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 78
+fail_under = 80
 show_missing = true

@@ -40,7 +40,9 @@ class ClipArchiver:
         if not clips:
             return 0
 
-        _LOGGER.info("Archiving %d clip(s) older than %d days", len(clips), self._archive_after)
+        _LOGGER.info(
+            "Archiving %d clip(s) older than %d days", len(clips), self._archive_after
+        )
         self._archive_dir.mkdir(parents=True, exist_ok=True)
 
         # Group by "YYYY-MM" for one ZIP per month.

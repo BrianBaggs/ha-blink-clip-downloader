@@ -66,6 +66,7 @@ class AppConfig:
     fast_poll_duration: int = 120
     fast_poll_interval: int = 15
     event_cameras: list[str] = field(default_factory=list)
+    post_motion_delay: int = 30
 
     # --- Clip filtering ---
     min_clip_duration: int = 0
@@ -165,7 +166,9 @@ def _parse_config(data: dict) -> AppConfig:
         create_clip_manifest=bool(data.get("create_clip_manifest", True)),
         enable_library_db=bool(data.get("enable_library_db", True)),
         enable_media_server=bool(data.get("enable_media_server", True)),
-        media_server_port=max(1024, min(65535, int(data.get("media_server_port", 8099)))),
+        media_server_port=max(
+            1024, min(65535, int(data.get("media_server_port", 8099)))
+        ),
         watch_ha_events=bool(data.get("watch_ha_events", True)),
         fast_poll_duration=max(10, int(data.get("fast_poll_duration", 120))),
         fast_poll_interval=max(5, min(60, int(data.get("fast_poll_interval", 15)))),
@@ -174,6 +177,7 @@ def _parse_config(data: dict) -> AppConfig:
             for c in data.get("event_cameras", [])
             if isinstance(c, str) and c.strip()
         ],
+        post_motion_delay=max(5, min(300, int(data.get("post_motion_delay", 30)))),
         min_clip_duration=max(0, int(data.get("min_clip_duration", 0))),
         digest_enabled=bool(data.get("digest_enabled", True)),
         digest_time=str(data.get("digest_time", "08:00")),

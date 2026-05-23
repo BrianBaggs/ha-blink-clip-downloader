@@ -52,7 +52,9 @@ class BlinkClipDownloaderApp:
             title=config.ha_notification_title,
             webhook_url=config.webhook_url,
         )
-        self._downloader = BlinkDownloader(config, self._storage, self._tracker, self._db)
+        self._downloader = BlinkDownloader(
+            config, self._storage, self._tracker, self._db
+        )
         self._digest = DailyDigest(
             notifier=self._notifier,
             db=self._db,
@@ -74,6 +76,7 @@ class BlinkClipDownloaderApp:
         self._event_watcher = HAEventWatcher(
             supervisor_token=config.supervisor_token,
             on_motion=self._on_blink_motion,
+            on_motion_cleared=self._on_blink_motion_cleared,
             event_cameras=config.event_cameras,
         )
 
@@ -97,11 +100,14 @@ class BlinkClipDownloaderApp:
         _LOGGER.info("  Poll interval   : %d s", self._config.poll_interval)
         _LOGGER.info("  Retention       : %d days", self._config.retention_days)
         _LOGGER.info("  Quota           : %.1f GB", self._config.max_storage_gb)
-        _LOGGER.info("  Media server    : %s (port %d)",
-                     "on" if self._config.enable_media_server else "off",
-                     self._config.media_server_port)
-        _LOGGER.info("  HA event watch  : %s",
-                     "on" if self._config.watch_ha_events else "off")
+        _LOGGER.info(
+            "  Media server    : %s (port %d)",
+            "on" if self._config.enable_media_server else "off",
+            self._config.media_server_port,
+        )
+        _LOGGER.info(
+            "  HA event watch  : %s", "on" if self._config.watch_ha_events else "off"
+        )
 
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
@@ -128,6 +134,12 @@ class BlinkClipDownloaderApp:
             "connected",
             {"friendly_name": "Blink Clip Downloader", "status": "connected"},
         )
+
+        # Expose connection status to the media server status endpoint.
+        self._media_server.extra_status = {
+            "connected": True,
+            "account_id": getattr(self._downloader._blink, "account_id", None),
+        }
 
         # Start background services.
         if self._config.enable_media_server:
@@ -215,6 +227,8 @@ class BlinkClipDownloaderApp:
 
         tracker_stats = self._tracker.stats
         disk = self._storage.disk_stats()
+        last_dl = datetime.now(timezone.utc).isoformat()
+        self._media_server.extra_status["last_download"] = last_dl
         await self._notifier.update_sensor(
             "sensor.blink_downloader_status",
             str(tracker_stats.get("total_downloaded", 0)),
@@ -242,6 +256,29 @@ class BlinkClipDownloaderApp:
             self._config.fast_poll_duration,
         )
 
+    def _on_blink_motion_cleared(self, camera_name: str) -> None:
+        """Called when a Blink motion sensor clears.
+
+        Schedules a download poll after *post_motion_delay* seconds to give
+        Blink time to encode and upload the clip before we try to fetch it.
+        """
+        delay = self._config.post_motion_delay
+        _LOGGER.info(
+            "Motion cleared on %r — will poll for new clip in %ds",
+            camera_name,
+            delay,
+        )
+        try:
+            loop = asyncio.get_event_loop()
+            loop.call_later(delay, self._activate_fast_poll)
+        except RuntimeError:
+            pass
+
+    def _activate_fast_poll(self) -> None:
+        """Activate fast-poll mode for one cycle (used by post-motion timer)."""
+        self._fast_poll_until = time.monotonic() + self._config.fast_poll_duration
+        _LOGGER.debug("Post-motion delay elapsed — fast-poll mode activated")
+
     async def _trigger_immediate_download(self) -> None:
         """Called by the media server's Sync Now button."""
         self._fast_poll_until = time.monotonic() + 30
@@ -254,7 +291,11 @@ class BlinkClipDownloaderApp:
     async def _wait_with_trigger_check(self) -> None:
         """Wait for the next poll, honouring fast-poll mode and trigger files."""
         in_fast_mode = time.monotonic() < self._fast_poll_until
-        interval = self._config.fast_poll_interval if in_fast_mode else self._config.poll_interval
+        interval = (
+            self._config.fast_poll_interval
+            if in_fast_mode
+            else self._config.poll_interval
+        )
 
         if in_fast_mode:
             _LOGGER.debug("Fast-poll mode: next poll in %ds", interval)

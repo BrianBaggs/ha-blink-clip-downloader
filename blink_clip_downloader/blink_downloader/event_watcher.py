@@ -16,22 +16,26 @@ _RECONNECT_DELAY = 30  # seconds before reconnecting after a drop
 
 
 class HAEventWatcher:
-    """Subscribes to HA state_changed events and fires a callback on Blink motion.
+    """Subscribes to HA state_changed events and fires callbacks on Blink motion.
 
     When a ``binary_sensor.blink_*_motion`` entity flips to "on", the supplied
-    *on_motion* callback is called with the human-readable camera name so the
-    app can immediately trigger a download poll instead of waiting for the next
-    scheduled interval.
+    *on_motion* callback is called with the human-readable camera name.
+
+    When the same entity flips back to "off" (motion cleared), the optional
+    *on_motion_cleared* callback is called, enabling a post-motion delayed
+    download to capture the clip after Blink has had time to upload it.
     """
 
     def __init__(
         self,
         supervisor_token: str,
         on_motion: Callable[[str], None],
+        on_motion_cleared: Callable[[str], None] | None = None,
         event_cameras: list[str] | None = None,
     ) -> None:
         self._token = supervisor_token
         self._on_motion = on_motion
+        self._on_motion_cleared = on_motion_cleared
         # Lower-cased set of cameras to watch; empty = all Blink cameras.
         self._event_cameras: set[str] = (
             {c.lower() for c in event_cameras} if event_cameras else set()
@@ -139,9 +143,6 @@ class HAEventWatcher:
         entity_id: str = data.get("entity_id", "")
         new_state: dict = data.get("new_state") or {}
 
-        if new_state.get("state") != "on":
-            return
-
         camera_name = self.extract_blink_camera(entity_id)
         if camera_name is None:
             return
@@ -152,8 +153,18 @@ class HAEventWatcher:
             )
             return
 
-        _LOGGER.info("Motion detected on Blink camera %r — triggering fast poll", camera_name)
-        self._on_motion(camera_name)
+        state = new_state.get("state", "")
+        if state == "on":
+            _LOGGER.info(
+                "Motion detected on Blink camera %r — triggering fast poll", camera_name
+            )
+            self._on_motion(camera_name)
+        elif state == "off" and self._on_motion_cleared is not None:
+            _LOGGER.info(
+                "Motion cleared on Blink camera %r — scheduling post-motion download",
+                camera_name,
+            )
+            self._on_motion_cleared(camera_name)
 
     # ------------------------------------------------------------------
     # Public utility (also used by tests)
@@ -171,7 +182,7 @@ class HAEventWatcher:
         suffix = "_motion"
         if not entity_id.startswith(prefix):
             return None
-        inner = entity_id[len(prefix):]
+        inner = entity_id[len(prefix) :]
         if not inner.endswith(suffix):
             return None
         slug = inner[: -len(suffix)]

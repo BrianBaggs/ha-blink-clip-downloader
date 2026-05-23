@@ -6,10 +6,34 @@ on:
   pull_request:
 
 jobs:
+  # ── Lint ──────────────────────────────────────────────────────────────
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff==0.4.7
+
+      - name: Check code style
+        working-directory: blink_clip_downloader
+        run: ruff check blink_downloader/
+
+      - name: Check formatting
+        working-directory: blink_clip_downloader
+        run: ruff format --check blink_downloader/
+
+  # ── Tests ─────────────────────────────────────────────────────────────
   test:
     name: Test (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python: ["3.11", "3.12"]
 
@@ -20,8 +44,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+          cache: "pip"
 
-      - name: Install dependencies
+      - name: Install package with test extras
         working-directory: blink_clip_downloader
         run: pip install -e ".[test]"
 
@@ -34,14 +59,16 @@ jobs:
             --cov-report=xml:coverage.xml \
             -v
 
-      - name: Upload coverage
+      - name: Upload coverage to Codecov
+        if: matrix.python == '3.12'
         uses: codecov/codecov-action@v4
         with:
           files: blink_clip_downloader/coverage.xml
           fail_ci_if_error: false
 
-  lint:
-    name: Lint
+  # ── Dependency audit ──────────────────────────────────────────────────
+  audit:
+    name: Dependency audit (pip-audit)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,13 +77,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install linting tools
-        run: pip install ruff
+      - name: Install pip-audit
+        run: pip install pip-audit
 
-      - name: Ruff check
+      - name: Audit dependencies
         working-directory: blink_clip_downloader
-        run: ruff check blink_downloader/
-
-      - name: Ruff format check
-        working-directory: blink_clip_downloader
-        run: ruff format --check blink_downloader/
+        run: pip-audit -r requirements.txt --ignore-vuln PYSEC-2024-57

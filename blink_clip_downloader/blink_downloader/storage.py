@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -171,9 +169,9 @@ class StorageManager:
 
 def _safe_name(name: str) -> str:
     """Convert *name* to a filesystem-safe string (spaces become underscores)."""
-    result = "".join(
-        ch if ch.isalnum() or ch in "._-" else "_" for ch in name
-    ).strip("_")
+    result = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in name).strip(
+        "_"
+    )
     return result if result else "unknown"
 
 

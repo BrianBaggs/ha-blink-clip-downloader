@@ -53,6 +53,7 @@ def base_config(tmp_download_dir: Path) -> AppConfig:
         watch_ha_events=False,
         fast_poll_duration=30,
         fast_poll_interval=5,
+        post_motion_delay=10,
         event_cameras=[],
         digest_enabled=False,
         digest_time="08:00",

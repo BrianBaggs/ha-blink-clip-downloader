@@ -113,6 +113,12 @@ configuration:
     description: >-
       Poll interval while in fast-poll mode triggered by a motion event
       (default 15 s, min 5 s).
+  post_motion_delay:
+    name: Post-Motion Download Delay (seconds)
+    description: >-
+      How many seconds to wait after a Blink motion sensor clears before
+      polling for the new clip. Blink typically takes 15–60 seconds to encode
+      and upload a clip after motion ends. Default is 30 s (range 5–300 s).
   event_cameras:
     name: Event Camera Filter
     description: >-

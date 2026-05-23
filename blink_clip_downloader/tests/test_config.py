@@ -156,3 +156,23 @@ def test_load_config_invalid_json(tmp_path):
     bad_file.write_text("{not valid json}")
     with pytest.raises(Exception):
         load_config(bad_file)
+
+
+def test_post_motion_delay_default():
+    cfg = _parse_config({"username": "u", "password": "p"})
+    assert cfg.post_motion_delay == 30
+
+
+def test_post_motion_delay_clamped_to_min():
+    cfg = _parse_config({"username": "u", "password": "p", "post_motion_delay": 1})
+    assert cfg.post_motion_delay == 5
+
+
+def test_post_motion_delay_clamped_to_max():
+    cfg = _parse_config({"username": "u", "password": "p", "post_motion_delay": 9999})
+    assert cfg.post_motion_delay == 300
+
+
+def test_post_motion_delay_custom():
+    cfg = _parse_config({"username": "u", "password": "p", "post_motion_delay": 60})
+    assert cfg.post_motion_delay == 60

@@ -249,6 +249,38 @@ async def test_get_distinct_tags(db: ClipDatabase) -> None:
 # No-op when DB not initialised
 # ------------------------------------------------------------------
 
+async def test_get_clips_sort_oldest(db: ClipDatabase) -> None:
+    for i in range(3):
+        ts = f"2024-06-{i+1:02d}T00:00:00+00:00"
+        await db.add_clip(_make_clip(f"c{i}", timestamp=ts))
+    clips = await db.get_clips(sort="oldest")
+    assert clips[0]["id"] == "c0"
+    assert clips[-1]["id"] == "c2"
+
+
+async def test_get_clips_sort_newest(db: ClipDatabase) -> None:
+    for i in range(3):
+        ts = f"2024-06-{i+1:02d}T00:00:00+00:00"
+        await db.add_clip(_make_clip(f"c{i}", timestamp=ts))
+    clips = await db.get_clips(sort="newest")
+    assert clips[0]["id"] == "c2"
+    assert clips[-1]["id"] == "c0"
+
+
+async def test_get_clips_sort_by_camera(db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("c1", camera="Zebra"))
+    await db.add_clip(_make_clip("c2", camera="Alpha"))
+    clips = await db.get_clips(sort="camera")
+    assert clips[0]["camera"] == "Alpha"
+
+
+async def test_get_clips_sort_by_size(db: ClipDatabase) -> None:
+    await db.add_clip(_make_clip("c1", size_bytes=100))
+    await db.add_clip(_make_clip("c2", size_bytes=9000))
+    clips = await db.get_clips(sort="size")
+    assert clips[0]["id"] == "c2"
+
+
 async def test_operations_without_init_are_safe() -> None:
     d = ClipDatabase(Path("/tmp/neveropened2.db"))
     assert await d.get_clip("x") is None

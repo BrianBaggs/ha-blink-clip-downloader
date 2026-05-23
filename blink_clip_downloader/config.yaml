@@ -73,6 +73,7 @@ options:
   watch_ha_events: true
   fast_poll_duration: 120
   fast_poll_interval: 15
+  post_motion_delay: 30
   event_cameras: []
 
   # --- Daily digest ---
@@ -116,6 +117,7 @@ schema:
   watch_ha_events: "bool"
   fast_poll_duration: "int(10,3600)"
   fast_poll_interval: "int(5,60)"
+  post_motion_delay: "int(5,300)"
   event_cameras:
     - "str?"
   digest_enabled: "bool"

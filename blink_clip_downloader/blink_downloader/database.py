@@ -136,9 +136,7 @@ class ClipDatabase:
         """Remove a clip record from the database."""
         if self._db is None:
             return False
-        cursor = await self._db.execute(
-            "DELETE FROM clips WHERE id=?", (clip_id,)
-        )
+        cursor = await self._db.execute("DELETE FROM clips WHERE id=?", (clip_id,))
         await self._db.commit()
         return cursor.rowcount > 0
 
@@ -166,10 +164,14 @@ class ClipDatabase:
         tag: str | None = None,
         search: str | None = None,
         archived: bool = False,
+        sort: str = "newest",
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Query clips with optional filters, newest first."""
+        """Query clips with optional filters and sort order.
+
+        sort values: "newest" | "oldest" | "camera" | "size" | "duration"
+        """
         if self._db is None:
             return []
 
@@ -198,9 +200,18 @@ class ClipDatabase:
             where.append("(LOWER(camera) LIKE LOWER(?) OR id LIKE ?)")
             params += [f"%{search}%", f"%{search}%"]
 
+        _sort_map = {
+            "newest": "timestamp DESC",
+            "oldest": "timestamp ASC",
+            "camera": "LOWER(camera) ASC, timestamp DESC",
+            "size": "size_bytes DESC",
+            "duration": "duration DESC",
+        }
+        order = _sort_map.get(sort, "timestamp DESC")
+
         sql = (
             f"SELECT * FROM clips WHERE {' AND '.join(where)} "
-            f"ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+            f"ORDER BY {order} LIMIT ? OFFSET ?"
         )
         params += [limit, offset]
 
@@ -208,7 +219,9 @@ class ClipDatabase:
             rows = await cursor.fetchall()
         return [_row_to_dict(r) for r in rows]
 
-    async def count_clips(self, camera: str | None = None, starred: bool | None = None) -> int:
+    async def count_clips(
+        self, camera: str | None = None, starred: bool | None = None
+    ) -> int:
         if self._db is None:
             return 0
         where = ["archived=0"]

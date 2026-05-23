@@ -273,3 +273,48 @@ def test_handle_shutdown_sets_running_false(app):
     app._running = True
     app._handle_shutdown()
     assert app._running is False
+
+
+# ---------------------------------------------------------------------------
+# Fast-poll / motion helpers
+# ---------------------------------------------------------------------------
+
+
+import time as _time
+
+
+def test_on_blink_motion_sets_fast_poll_until(app):
+    app._config.fast_poll_duration = 60
+    before = _time.monotonic()
+    app._on_blink_motion("Front Door")
+    assert app._fast_poll_until >= before + 59
+
+
+def test_activate_fast_poll_sets_fast_poll_until(app):
+    app._config.fast_poll_duration = 30
+    before = _time.monotonic()
+    app._activate_fast_poll()
+    assert app._fast_poll_until >= before + 29
+
+
+def test_on_blink_motion_cleared_schedules_timer(app):
+    """_on_blink_motion_cleared should call loop.call_later without raising."""
+    import asyncio
+    called_with = {}
+    loop = asyncio.get_event_loop()
+    original = loop.call_later
+
+    def fake_call_later(delay, callback, *args):
+        called_with["delay"] = delay
+        called_with["callback"] = callback
+        return original(delay, callback, *args)
+
+    loop.call_later = fake_call_later
+    app._config.post_motion_delay = 15
+    try:
+        app._on_blink_motion_cleared("Garage")
+    finally:
+        loop.call_later = original
+
+    assert called_with.get("delay") == 15
+    assert called_with.get("callback") == app._activate_fast_poll

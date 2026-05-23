@@ -136,9 +136,7 @@ class BlinkDownloader:
         results: list[dict[str, Any]] = []
         for clip, result in zip(new_clips, raw_results):
             if isinstance(result, Exception):
-                _LOGGER.error(
-                    "Failed to download clip %s: %s", clip.get("id"), result
-                )
+                _LOGGER.error("Failed to download clip %s: %s", clip.get("id"), result)
             elif result is not None:
                 results.append(result)
 
@@ -183,9 +181,7 @@ class BlinkDownloader:
         """Apply camera whitelist, motion-only, and time-window filters."""
         if self._config.camera_filter:
             allowed = {c.lower() for c in self._config.camera_filter}
-            clips = [
-                c for c in clips if c.get("device_name", "").lower() in allowed
-            ]
+            clips = [c for c in clips if c.get("device_name", "").lower() in allowed]
 
         if self._config.motion_only:
             clips = [c for c in clips if c.get("source", "") == "pir"]
@@ -195,7 +191,8 @@ class BlinkDownloader:
 
         if self._config.min_clip_duration > 0:
             clips = [
-                c for c in clips
+                c
+                for c in clips
                 if int(c.get("duration", 0) or 0) >= self._config.min_clip_duration
             ]
 
@@ -233,9 +230,7 @@ class BlinkDownloader:
             created_str = clip.get("created_at", "")
 
             try:
-                timestamp = datetime.fromisoformat(
-                    created_str.replace("Z", "+00:00")
-                )
+                timestamp = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
             except (ValueError, AttributeError):
                 timestamp = datetime.now(timezone.utc)
 
@@ -244,9 +239,7 @@ class BlinkDownloader:
                 return None
 
             if self._storage.is_over_quota():
-                _LOGGER.warning(
-                    "Storage quota reached, skipping clip %s", clip_id
-                )
+                _LOGGER.warning("Storage quota reached, skipping clip %s", clip_id)
                 return None
 
             dest = self._storage.resolve_path(camera_name, timestamp, clip_id)
@@ -283,9 +276,7 @@ class BlinkDownloader:
                 thumb_url = clip.get("thumbnail", "")
                 if thumb_url:
                     thumb_dest = dest.with_suffix(".jpg")
-                    await self._stream_to_file(
-                        self._resolve_url(thumb_url), thumb_dest
-                    )
+                    await self._stream_to_file(self._resolve_url(thumb_url), thumb_dest)
 
             result = {
                 "id": clip_id,
