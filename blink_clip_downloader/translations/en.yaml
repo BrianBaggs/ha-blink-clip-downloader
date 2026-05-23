@@ -64,6 +64,11 @@ configuration:
   retry_attempts:
     name: Retry Attempts
     description: How many times to retry a failed download before skipping.
+  retry_delay:
+    name: Retry Delay (seconds)
+    description: >-
+      Seconds to wait between retry attempts. The delay is multiplied by the
+      attempt number (e.g. 5 s, 10 s, 15 s). Range 0–300 s.
   notify_ha:
     name: HA Notifications
     description: Send a persistent notification in Home Assistant when new clips arrive.

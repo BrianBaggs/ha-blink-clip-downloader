@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blink-downloader"
-version = "1.0.0"
+version = "2.0.0"
 description = "Home Assistant add-on: Blink Clip Downloader"
 requires-python = ">=3.11"
 dependencies = [

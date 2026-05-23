@@ -3,8 +3,9 @@
 ## Overview
 
 This add-on continuously polls the Blink API for new camera clips and saves them to
-your local storage (under `/share/blink-clips` by default), so you have a local
-copy in addition to any cloud storage.
+your local storage (under `/share/blink-clips` by default). It includes a built-in
+web library UI, SQLite clip database, event-driven instant download, daily digest
+notifications, ZIP archiving, and full Home Assistant integration.
 
 ---
 
@@ -17,6 +18,29 @@ copy in addition to any cloud storage.
 4. Open the **Configuration** tab, fill in your Blink credentials, and save.
 5. Click **Start**.
 
+### Web UI Access
+
+After starting, the clip library is accessible two ways:
+
+- **HA Sidebar** — a **Blink Clips** panel appears automatically (powered by HA
+  ingress; no extra port or auth needed).
+- **Direct URL** — `http://<ha-ip>:8099` (requires the `8099/tcp` port mapping to
+  be forwarded).
+
+---
+
+## Uninstallation
+
+1. Go to **Settings → Add-ons → Blink Clip Downloader → Uninstall**.
+2. The supervisor removes the add-on container and its `/data/` directory
+   (auth tokens, database, tracker, manifest) automatically.
+3. Downloaded clips in `/share/blink-clips/` are intentionally **not** deleted —
+   your recordings are kept. Remove them manually if no longer needed.
+
+> **Note:** Uninstalling the add-on has no effect on Home Assistant itself.
+> The `sensor.blink_downloader_status` entity becomes unavailable after the add-on
+> stops and disappears from the entity registry once HA next restarts.
+
 ---
 
 ## Two-Factor Authentication (2FA)
@@ -28,50 +52,40 @@ attempt and log:
 2FA required! Write your 6-digit code to: /data/two_fa_code.txt
 ```
 
-Connect to your Home Assistant instance via SSH or the Terminal add-on and run:
+Connect via SSH or the Terminal add-on and run:
 
 ```bash
-echo "123456" > /data/blink_clip_downloader/two_fa_code.txt
+echo "123456" > /data/two_fa_code.txt
 ```
 
-Replace `123456` with the actual code from your authenticator app or SMS.  
-The add-on will detect the file, complete the login, and delete the file automatically.
+Replace `123456` with the actual code from your authenticator app or SMS.
+The add-on detects the file within seconds, completes login, and deletes the file.
 
-After a successful login the auth tokens are cached in
-`/data/blink_clip_downloader/auth_credentials.json` and reused on subsequent starts.
-You will only be prompted for 2FA again if the refresh token expires (typically 30+ days
-of the add-on being stopped).
+After a successful login, auth tokens are cached in `/data/auth_credentials.json`
+and reused on subsequent starts. You will only be prompted for 2FA again if the
+refresh token expires (typically after 30+ days with the add-on stopped).
 
 ---
 
 ## Configuration Options
 
+### Credentials
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `username` | _(required)_ | Blink account email |
 | `password` | _(required)_ | Blink account password |
-| `download_path` | `/share/blink-clips` | Where to save clips |
-| `organize_by_camera` | `true` | Sub-folder per camera |
-| `organize_by_date` | `true` | Sub-folder per date (`YYYY-MM-DD`) |
-| `filename_format` | `{camera}_{timestamp}` | Clip filename template |
-| `poll_interval` | `300` | Seconds between polls (30–3600) |
-| `max_clips_per_poll` | `50` | Clips downloaded per cycle |
-| `retention_days` | `30` | Auto-delete clips older than N days (0 = off) |
-| `max_storage_gb` | `10` | Stop downloading when folder exceeds N GB (0 = unlimited) |
-| `camera_filter` | `[]` | Only download from these cameras (empty = all) |
-| `motion_only` | `false` | Only download motion-triggered clips |
-| `time_window_start` | `""` | HH:MM — only download clips after this time |
-| `time_window_end` | `""` | HH:MM — only download clips before this time |
-| `download_thumbnails` | `false` | Save JPEG thumbnail alongside each clip |
-| `concurrent_downloads` | `3` | Parallel downloads (1–10) |
-| `retry_attempts` | `3` | Retries per failed download |
-| `notify_ha` | `true` | HA persistent notification when clips arrive |
-| `ha_notification_title` | `"Blink Clip Downloaded"` | Notification title |
-| `webhook_url` | `""` | POST clip metadata here after each download |
-| `create_clip_manifest` | `true` | Append clip metadata to `/data/clip_manifest.json` |
-| `log_level` | `info` | `debug`, `info`, `warning`, or `error` |
 
-### Filename format tokens
+### Storage
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `download_path` | `/share/blink-clips` | Absolute path for saved clips (must be under `/share/`) |
+| `organize_by_camera` | `true` | Create a sub-folder per camera name |
+| `organize_by_date` | `true` | Create a sub-folder per recording date (`YYYY-MM-DD`) |
+| `filename_format` | `{camera}_{timestamp}` | Clip filename template (see tokens below) |
+
+#### Filename format tokens
 
 | Token | Example | Meaning |
 |-------|---------|---------|
@@ -81,24 +95,149 @@ of the add-on being stopped).
 | `{time}` | `083000` | Time part only |
 | `{id}` | `99001` | Blink clip ID |
 
+### Polling
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `poll_interval` | `300` | Seconds between regular polls (30–3600) |
+| `max_clips_per_poll` | `50` | Maximum clips downloaded in one cycle |
+
+### Retention & Quota
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `retention_days` | `30` | Auto-delete clips older than N days (0 = keep forever) |
+| `max_storage_gb` | `10.0` | Stop downloading when the folder exceeds N GB (0 = unlimited) |
+
+### Filtering
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `camera_filter` | `[]` | Only download from these cameras (empty = all) |
+| `motion_only` | `false` | Skip clips not triggered by a PIR motion sensor |
+| `time_window_start` | `""` | `HH:MM` — only download clips recorded at or after this time |
+| `time_window_end` | `""` | `HH:MM` — only download clips recorded at or before this time |
+| `min_clip_duration` | `0` | Skip clips shorter than N seconds (0 = keep all) |
+
+### Download Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `download_thumbnails` | `false` | Save a JPEG thumbnail alongside each clip |
+| `concurrent_downloads` | `3` | Parallel downloads (1–10) |
+| `retry_attempts` | `3` | Retries per failed download |
+| `retry_delay` | `5.0` | Base seconds between retries (multiplied by attempt number) |
+
+### HA Notifications
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `notify_ha` | `true` | Send a persistent HA notification when new clips arrive |
+| `ha_notification_title` | `"Blink Clip Downloaded"` | Title for HA notifications |
+
+### Extra Features
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `webhook_url` | `""` | POST clip metadata to this URL after each download |
+| `create_clip_manifest` | `true` | Append metadata to `/data/clip_manifest.json` |
+
+### Clip Library Database
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enable_library_db` | `true` | Store clip metadata in a SQLite database |
+
+### Web Library UI
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enable_media_server` | `true` | Start the built-in web UI |
+| `media_server_port` | `8099` | TCP port for the web UI (also the ingress port) |
+
+### Event-Driven Instant Download
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `watch_ha_events` | `true` | Subscribe to HA `state_changed` events for instant download |
+| `fast_poll_duration` | `120` | Seconds to stay in fast-poll mode after a motion event |
+| `fast_poll_interval` | `15` | Poll interval (seconds) while in fast-poll mode |
+| `post_motion_delay` | `30` | Seconds to wait after motion clears before polling (5–300) |
+| `event_cameras` | `[]` | Only fast-poll for motion from these cameras (empty = all) |
+
+> **Tip:** Blink typically takes 15–60 seconds to encode and upload a clip after
+> motion ends. The default `post_motion_delay` of 30 s is a good starting point;
+> increase it if clips are missing from the first fast poll.
+
+### Daily Digest
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `digest_enabled` | `true` | Send a daily HA notification with a download summary |
+| `digest_time` | `"08:00"` | Local time to send the digest (24-hour, e.g. `"08:00"`) |
+
+### ZIP Archiving
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `archive_enabled` | `false` | Compress old clips into monthly ZIP files |
+| `archive_after_days` | `60` | Clips older than N days are archived (1–365) |
+
+### Logging
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `log_level` | `info` | `debug`, `info`, `warning`, or `error` |
+
+---
+
+## Web Library UI
+
+The built-in web interface lets you browse, search, play, star, tag, and delete clips
+from any browser without leaving Home Assistant.
+
+### Features
+
+- **Library tab** — scrollable grid with thumbnails, camera/date/source/tag filters,
+  sort by newest/oldest/camera/size/duration, starred filter, and a camera sidebar.
+- **Status tab** — Blink connection status, library stats, per-camera breakdown, and
+  a 7-day activity chart.
+- **Automations tab** — ready-to-paste HA automation YAML snippets.
+- **Video.js player** — in-browser streaming with play/pause, seek, fullscreen, PiP,
+  loop, autoplay-next, theater mode, and playback-rate selection.
+- **Bulk select** — star, delete, or export multiple clips as a ZIP archive.
+- **Tag management** — add/remove freeform tags per clip; filter the library by tag.
+- **Browser notifications** — opt-in desktop notifications when new clips arrive.
+
+### Keyboard shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Space` | Play / pause |
+| `← →` | Seek ±10 s |
+| `↑ ↓` | Previous / next clip |
+| `F` | Toggle fullscreen |
+| `M` | Toggle mute |
+| `L` | Toggle loop |
+| `Esc` | Close player or help overlay |
+| `?` | Show / hide keyboard shortcut help |
+
 ---
 
 ## Home Assistant Integration
 
 ### Sensor
 
-The add-on writes a virtual sensor after every poll:
+After every poll the add-on updates a virtual sensor:
 
 - **entity_id**: `sensor.blink_downloader_status`
 - **state**: total clips downloaded (lifetime)
 - **attributes**: `total_downloaded`, `session_downloads`, `used_mb`, `free_gb`,
   `last_download`
 
-You can use this in automations or display it on a dashboard.
-
 ### Events
 
-For every downloaded clip the add-on fires the event `blink_clip_downloaded` with:
+For every downloaded clip the add-on fires the event `blink_clip_downloaded`:
 
 ```json
 {
@@ -112,7 +251,7 @@ For every downloaded clip the add-on fires the event `blink_clip_downloaded` wit
 }
 ```
 
-Example automation to play a TTS alert when a doorbell clip arrives:
+Example automation — TTS alert when a doorbell clip arrives:
 
 ```yaml
 alias: Announce doorbell clip
@@ -131,24 +270,25 @@ action:
 
 ## Manual Trigger
 
-Touch the file `/data/blink_clip_downloader/trigger_download` to force an immediate
-poll without waiting for the next interval:
+Touch the file `/data/trigger_download` to force an immediate poll without waiting
+for the next scheduled interval:
 
 ```bash
-touch /data/blink_clip_downloader/trigger_download
+touch /data/trigger_download
 ```
 
 The add-on checks for this file every 10 seconds and deletes it after triggering.
+You can also click **⬇ Sync** in the web UI Library tab.
 
 ---
 
-## Accessing Your Clips
+## Accessing Clips Outside the Web UI
 
-Downloaded clips are saved under the `share` folder, which is accessible via:
+Downloaded clips are saved under the `share` folder, accessible via:
 
-- **Media Browser** in the Home Assistant UI (Settings → Media)
-- **Samba share** if the Samba add-on is installed
-- **SSH** at `/share/blink-clips/`
+- **Media Browser** — Home Assistant UI → Settings → Media.
+- **Samba share** — if the Samba add-on is installed, browse to `\\ha\share\blink-clips`.
+- **SSH** — `/share/blink-clips/` inside the HA OS container.
 
 ---
 
@@ -159,9 +299,14 @@ Downloaded clips are saved under the `share` folder, which is accessible via:
 | `/data/auth_credentials.json` | Cached Blink auth tokens (do not edit) |
 | `/data/downloaded_clips.json` | Tracker of downloaded clip IDs |
 | `/data/clip_manifest.json` | Newline-delimited JSON log of all downloads |
+| `/data/clip_library.db` | SQLite database powering the web UI |
 | `/data/stats.json` | Latest statistics snapshot |
+| `/data/last_digest.json` | Timestamp of the last daily digest |
 | `/data/two_fa_code.txt` | Write your 2FA code here when prompted |
 | `/data/trigger_download` | Touch to force an immediate poll |
+
+> All `/data/` files are stored inside the add-on's private data directory and are
+> automatically removed by the supervisor when the add-on is uninstalled.
 
 ---
 
@@ -170,14 +315,24 @@ Downloaded clips are saved under the `share` folder, which is accessible via:
 **Clips are not being downloaded**
 - Check the add-on log for authentication errors.
 - Verify your Blink credentials are correct.
-- Ensure `/share/` is writable (the add-on requires `share:rw` in its mapping).
+- Ensure `/share/` is writable (`share:rw` is set in the add-on's volume mapping).
 
 **2FA loop keeps triggering**
 - Your refresh token may have expired. Delete `/data/auth_credentials.json` and restart.
 
 **Storage keeps filling up**
 - Lower `retention_days` or `max_storage_gb`.
-- Consider adding cameras to `camera_filter` to limit which cameras are archived.
+- Enable `archive_enabled` to compress old clips into ZIP files.
+- Add cameras to `camera_filter` to limit which cameras are archived.
+
+**Clips are missing after motion events**
+- Increase `post_motion_delay` — Blink can take up to 60 s to upload a clip.
+- Enable `watch_ha_events` and ensure your Blink motion sensors are in HA.
+
+**Web UI shows blank / API errors via HA sidebar**
+- The add-on uses HA ingress, which automatically proxies the panel URL. No manual
+  port forwarding is needed for the sidebar panel.
+- If using direct access (`http://<ha-ip>:8099`), ensure port `8099/tcp` is exposed.
 
 **Clips from only one camera are downloading**
-- Check `camera_filter` — make sure the names match exactly (case-insensitive).
+- Check `camera_filter` — names must match exactly as shown in the Blink app.

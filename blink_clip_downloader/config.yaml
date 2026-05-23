@@ -4,8 +4,8 @@ slug: blink_clip_downloader
 description: >-
   Continuously downloads Blink camera clips to local storage with timestamps,
   per-camera organisation, retention policies, storage quotas, HA notifications,
-  motion/time-window filtering, SQLite clip library, web UI, and event-driven
-  instant download.
+  motion/time-window filtering, SQLite clip library, Video.js web UI, and
+  event-driven instant download after motion events.
 url: "https://github.com/yourusername/ha-blink-clip-downloader/tree/main/blink_clip_downloader"
 arch:
   - aarch64
@@ -14,13 +14,22 @@ arch:
   - armv7
 init: false
 homeassistant_api: true
+
+# Ingress provides a secure panel entry in the HA sidebar at no extra port.
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:cctv
+panel_title: Blink Clips
+
 map:
   - share:rw
   - data:rw
+
+# Direct-access port (optional alternative to ingress).
 ports:
   8099/tcp: 8099
 ports_description:
-  8099/tcp: Clip library web UI
+  8099/tcp: Clip library web UI (direct access)
 webui: "http://[HOST]:[PORT:8099]"
 
 options:
@@ -40,7 +49,7 @@ options:
 
   # --- Retention & quota ---
   retention_days: 30
-  max_storage_gb: 10
+  max_storage_gb: 10.0
 
   # --- Filtering ---
   camera_filter: []
@@ -53,6 +62,7 @@ options:
   download_thumbnails: false
   concurrent_downloads: 3
   retry_attempts: 3
+  retry_delay: 5.0
 
   # --- HA notifications ---
   notify_ha: true
@@ -97,7 +107,7 @@ schema:
   poll_interval: "int(30,3600)"
   max_clips_per_poll: "int(1,500)"
   retention_days: "int(0,365)"
-  max_storage_gb: "int(0,1000)"
+  max_storage_gb: "float(0,1000)"
   camera_filter:
     - "str?"
   motion_only: "bool"
@@ -107,6 +117,7 @@ schema:
   download_thumbnails: "bool"
   concurrent_downloads: "int(1,10)"
   retry_attempts: "int(1,10)"
+  retry_delay: "float(0,300)"
   notify_ha: "bool"
   ha_notification_title: "str"
   webhook_url: "url?"
@@ -125,5 +136,3 @@ schema:
   archive_enabled: "bool"
   archive_after_days: "int(1,365)"
   log_level: "list(debug|info|warning|error)"
-
-image: "ghcr.io/yourusername/ha-blink-clip-downloader/blink_clip_downloader"

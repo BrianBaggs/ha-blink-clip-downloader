@@ -561,6 +561,8 @@ action:
 
 <script>
 'use strict';
+// Ingress root prefix injected by server (empty for direct access, /api/hassio_ingress/TOKEN for ingress)
+const _R = '__HAROOT__';
 // ── State ──────────────────────────────────────────────────────────────────
 let currentCamera = 'all', currentPage = 0, currentClipId = null, currentTags = [];
 let selectMode = false, selectedIds = new Set();
@@ -651,7 +653,7 @@ function sinceDate(range) {
 
 // ── API ────────────────────────────────────────────────────────────────────
 async function api(path, opts = {}) {
-  const r = await fetch(path, opts);
+  const r = await fetch(_R + path, opts);
   if (!r.ok) {
     const t = await r.text().catch(() => r.statusText);
     throw new Error(`${r.status}: ${t}`);
@@ -787,7 +789,7 @@ function buildCard(c) {
   div.dataset.id = c.id;
   div.innerHTML =
     `<div class="thumb-wrap">` +
-    `<img src="/api/clips/${c.id}/thumb" loading="lazy" alt="" `
+    `<img src="${_R}/api/clips/${c.id}/thumb" loading="lazy" alt="" `
     + `onerror="this.style.display='none';this.nextSibling.style.display='flex'">` +
     `<div class="no-thumb" style="display:none">🎬</div>` +
     (c.duration ? `<div class="dur-badge">${fmtDur(c.duration)}</div>` : '') +
@@ -869,7 +871,7 @@ $('bulk-zip-btn').addEventListener('click', async () => {
   if (!selectedIds.size) return;
   const btn = $('bulk-zip-btn'); btn.disabled = true; btn.textContent = '⏳ Zipping…';
   try {
-    const resp = await fetch('/api/clips/export-zip', {
+    const resp = await fetch(_R + '/api/clips/export-zip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: [...selectedIds] }),
@@ -893,7 +895,7 @@ async function openModal(clipId) {
     currentTags = [...(c.tags || [])];
 
     // Update Video.js source — no page reload needed
-    player.src([{ src: `/api/clips/${clipId}/stream`, type: 'video/mp4' }]);
+    player.src([{ src: `${_R}/api/clips/${clipId}/stream`, type: 'video/mp4' }]);
     player.load();
 
     $('modal-title').textContent = `${c.camera} — ${fmtTs(c.timestamp)}`;
@@ -906,7 +908,7 @@ async function openModal(clipId) {
       `<div>Added</div><span>${fmtRelative(c.downloaded_at)}</span>`;
     updateStarBtn(c.starred);
     const dl = $('dl-link');
-    dl.href = `/api/clips/${clipId}/stream`;
+    dl.href = `${_R}/api/clips/${clipId}/stream`;
     dl.download = `${c.camera}_${(c.timestamp || '').replace(/[:.]/g, '-')}.mp4`;
     $('copy-path-btn').dataset.path = c.file_path || '';
     renderTags();
@@ -1265,8 +1267,12 @@ class MediaServer:
     # Handlers
     # ------------------------------------------------------------------
 
-    async def _handle_index(self, _request: web.Request) -> web.Response:
-        return web.Response(text=_HTML, content_type="text/html")
+    async def _handle_index(self, request: web.Request) -> web.Response:
+        # HA ingress sends X-Ingress-Path so the JS can prefix all API calls.
+        # For direct port access the header is absent and the prefix is empty.
+        ingress_path = request.headers.get("X-Ingress-Path", "").rstrip("/")
+        html = _HTML.replace("'__HAROOT__'", f"'{ingress_path}'")
+        return web.Response(text=html, content_type="text/html")
 
     async def _handle_health(self, _request: web.Request) -> web.Response:
         return web.json_response({"status": "ok"})

@@ -1,5 +1,44 @@
 # Changelog
 
+## 2.0.0
+
+### New features
+
+- **Web library UI** — built-in Video.js media server (port 8099 / HA ingress sidebar panel)
+  with clip grid, thumbnails, search, camera/date/source/tag filters, sort, starred filter,
+  and a camera sidebar.
+- **SQLite clip library** — all downloaded clips are indexed in `/data/clip_library.db`,
+  enabling fast filtering, tag management, and starred clips.
+- **Video.js player** — in-browser streaming with seek, fullscreen, PiP, loop,
+  theater mode, autoplay-next, and configurable playback rates.
+- **Bulk ZIP export** — select multiple clips and download them as a single ZIP archive.
+- **Tag support** — add/remove freeform tags per clip; filter the library by tag.
+- **Keyboard shortcuts** — Space/F/M/L/Esc/↑↓/←→ with a `?` help overlay.
+- **Browser notifications** — opt-in desktop notifications when new clips arrive.
+- **Activity heatmap** — 7-day clip count chart on the Status tab.
+- **Event-driven instant download** — subscribe to HA `state_changed` events and
+  trigger a fast-poll immediately when a Blink motion sensor fires.
+- **Fast-poll mode** — configurable burst polling after motion events
+  (`fast_poll_interval`, `fast_poll_duration`, `post_motion_delay`).
+- **Daily digest** — scheduled HA notification summarising downloads and storage.
+- **ZIP archiving** — compress clips older than a threshold into monthly ZIPs.
+- **Minimum clip duration filter** — skip clips shorter than N seconds.
+- **HA ingress panel** — automatic sidebar entry "Blink Clips" via `ingress: true`;
+  all web UI API calls use the `X-Ingress-Path` prefix so ingress and direct access
+  both work correctly.
+- **Retry delay** — configurable `retry_delay` (base seconds, multiplied per attempt).
+
+### Improvements
+
+- `config.yaml`: added ingress, panel icon/title, `retry_delay` option, corrected
+  `max_storage_gb` type to `float`, removed placeholder `image` field.
+- `Dockerfile`: added `io.hass.*` OCI labels and `BUILD_ARCH` / `BUILD_VERSION` ARGs
+  for multi-arch HA OS builds.
+- `apparmor.txt`: added `/tmp/`, `/run/s6-linux-init-container-results/exitcode`,
+  and `site-packages` paths required for Python and S6-overlay operation.
+- `translations/en.yaml`: added `retry_delay` translation.
+- Test coverage raised to 88 % across 245 tests; event_watcher coverage 98 %.
+
 ## 1.0.0 — Initial release
 
 - Continuous polling for new Blink camera clips
