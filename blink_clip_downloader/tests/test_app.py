@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time as _time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from blink_downloader.app import BlinkClipDownloaderApp, STATS_FILE, TRIGGER_FILE
+from blink_downloader.app import BlinkClipDownloaderApp
 from blink_downloader.downloader import TwoFARequired
 
 
@@ -73,7 +74,9 @@ async def test_poll_cycle_quota_exceeded_skips_download(app):
     app._downloader.download_new_clips.assert_not_awaited()
     app._notifier.notify.assert_awaited_once()
     notify_call = app._notifier.notify.call_args
-    assert "quota" in notify_call[0][0].lower() or "storage" in notify_call[0][0].lower()
+    assert (
+        "quota" in notify_call[0][0].lower() or "storage" in notify_call[0][0].lower()
+    )
 
 
 async def test_poll_cycle_calls_retention(app):
@@ -88,8 +91,20 @@ async def test_poll_cycle_calls_retention(app):
 
 async def test_on_clips_downloaded_fires_event_per_clip(app):
     clips = [
-        {"id": "a", "camera": "Cam1", "path": "/p/a.mp4", "timestamp": "t", "size_bytes": 10},
-        {"id": "b", "camera": "Cam2", "path": "/p/b.mp4", "timestamp": "t", "size_bytes": 20},
+        {
+            "id": "a",
+            "camera": "Cam1",
+            "path": "/p/a.mp4",
+            "timestamp": "t",
+            "size_bytes": 10,
+        },
+        {
+            "id": "b",
+            "camera": "Cam2",
+            "path": "/p/b.mp4",
+            "timestamp": "t",
+            "size_bytes": 20,
+        },
     ]
     await app._on_clips_downloaded(clips)
     assert app._notifier.fire_event.await_count == 2
@@ -107,7 +122,9 @@ async def test_on_clips_downloaded_lists_cameras_in_notification(app):
 
 
 async def test_on_clips_downloaded_updates_sensor(app):
-    clips = [{"id": "1", "camera": "C", "path": "/p", "timestamp": "t", "size_bytes": 5}]
+    clips = [
+        {"id": "1", "camera": "C", "path": "/p", "timestamp": "t", "size_bytes": 5}
+    ]
     await app._on_clips_downloaded(clips)
     app._notifier.update_sensor.assert_awaited_once()
     entity_id = app._notifier.update_sensor.call_args[0][0]
@@ -115,7 +132,9 @@ async def test_on_clips_downloaded_updates_sensor(app):
 
 
 async def test_on_clips_downloaded_calls_webhook(app):
-    clips = [{"id": "1", "camera": "C", "path": "/p", "timestamp": "t", "size_bytes": 5}]
+    clips = [
+        {"id": "1", "camera": "C", "path": "/p", "timestamp": "t", "size_bytes": 5}
+    ]
     await app._on_clips_downloaded(clips)
     app._notifier.call_webhook.assert_awaited_once()
 
@@ -123,7 +142,9 @@ async def test_on_clips_downloaded_calls_webhook(app):
 async def test_on_clips_downloaded_appends_manifest(app):
     app._config.create_clip_manifest = True
     app._manifest.append = MagicMock()
-    clips = [{"id": "1", "camera": "C", "path": "/p", "timestamp": "t", "size_bytes": 5}]
+    clips = [
+        {"id": "1", "camera": "C", "path": "/p", "timestamp": "t", "size_bytes": 5}
+    ]
     await app._on_clips_downloaded(clips)
     app._manifest.append.assert_called_once_with(clips[0])
 
@@ -131,7 +152,9 @@ async def test_on_clips_downloaded_appends_manifest(app):
 async def test_on_clips_downloaded_skips_manifest_when_disabled(app):
     app._config.create_clip_manifest = False
     app._manifest.append = MagicMock()
-    clips = [{"id": "1", "camera": "C", "path": "/p", "timestamp": "t", "size_bytes": 5}]
+    clips = [
+        {"id": "1", "camera": "C", "path": "/p", "timestamp": "t", "size_bytes": 5}
+    ]
     await app._on_clips_downloaded(clips)
     app._manifest.append.assert_not_called()
 
@@ -246,6 +269,7 @@ async def test_run_one_iteration_then_stop(app, tmp_path):
     app._storage.ensure_directory = MagicMock()
     # Give the tracker a writable file so _shutdown() can save it.
     from blink_downloader.tracker import ClipTracker
+
     app._tracker = ClipTracker(tmp_path / "tracker.json")
     poll_count = 0
 
@@ -280,9 +304,6 @@ def test_handle_shutdown_sets_running_false(app):
 # ---------------------------------------------------------------------------
 
 
-import time as _time
-
-
 def test_on_blink_motion_sets_fast_poll_until(app):
     app._config.fast_poll_duration = 60
     before = _time.monotonic()
@@ -299,7 +320,6 @@ def test_activate_fast_poll_sets_fast_poll_until(app):
 
 def test_on_blink_motion_cleared_schedules_timer(app):
     """_on_blink_motion_cleared should call loop.call_later without raising."""
-    import asyncio
     called_with = {}
     loop = asyncio.get_event_loop()
     original = loop.call_later

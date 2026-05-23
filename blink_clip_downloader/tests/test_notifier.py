@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
-import pytest
 
 from blink_downloader.notifier import HANotifier
 
@@ -147,7 +146,9 @@ async def test_update_sensor_success():
 
 
 async def test_call_webhook_success():
-    notifier = HANotifier("tok", enabled=True, title="T", webhook_url="https://hook.test/clip")
+    notifier = HANotifier(
+        "tok", enabled=True, title="T", webhook_url="https://hook.test/clip"
+    )
     resp = _make_mock_resp(200)
     notifier._session = _make_mock_session(resp)
 
@@ -162,7 +163,9 @@ async def test_call_webhook_no_url():
 
 
 async def test_call_webhook_http_error():
-    notifier = HANotifier("tok", enabled=True, title="T", webhook_url="https://bad.host/")
+    notifier = HANotifier(
+        "tok", enabled=True, title="T", webhook_url="https://bad.host/"
+    )
     session = MagicMock()
     session.post = MagicMock(side_effect=aiohttp.ClientError("refused"))
     session.closed = False

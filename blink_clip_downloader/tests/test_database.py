@@ -35,6 +35,7 @@ def _make_clip(clip_id: str = "clip1", camera: str = "Front Door", **kwargs) -> 
 # Lifecycle
 # ------------------------------------------------------------------
 
+
 async def test_init_creates_tables(tmp_path: Path) -> None:
     d = ClipDatabase(tmp_path / "new.db")
     await d.init()
@@ -50,6 +51,7 @@ async def test_double_close_is_safe(db: ClipDatabase) -> None:
 # ------------------------------------------------------------------
 # add_clip / get_clip
 # ------------------------------------------------------------------
+
 
 async def test_add_and_get_clip(db: ClipDatabase) -> None:
     clip = _make_clip()
@@ -84,6 +86,7 @@ async def test_add_clip_when_db_not_init() -> None:
 # star_clip / set_tags
 # ------------------------------------------------------------------
 
+
 async def test_star_and_unstar_clip(db: ClipDatabase) -> None:
     await db.add_clip(_make_clip())
     assert await db.star_clip("clip1", True) is True
@@ -115,6 +118,7 @@ async def test_set_tags_nonexistent_returns_false(db: ClipDatabase) -> None:
 # delete_clip
 # ------------------------------------------------------------------
 
+
 async def test_delete_clip(db: ClipDatabase) -> None:
     await db.add_clip(_make_clip())
     assert await db.delete_clip("clip1") is True
@@ -128,6 +132,7 @@ async def test_delete_nonexistent_returns_false(db: ClipDatabase) -> None:
 # ------------------------------------------------------------------
 # get_clips (filtered)
 # ------------------------------------------------------------------
+
 
 async def test_get_clips_all(db: ClipDatabase) -> None:
     for i in range(3):
@@ -162,7 +167,9 @@ async def test_get_clips_search(db: ClipDatabase) -> None:
 
 async def test_get_clips_pagination(db: ClipDatabase) -> None:
     for i in range(10):
-        await db.add_clip(_make_clip(f"c{i:02d}", timestamp=f"2024-06-{i+1:02d}T00:00:00+00:00"))
+        await db.add_clip(
+            _make_clip(f"c{i:02d}", timestamp=f"2024-06-{i + 1:02d}T00:00:00+00:00")
+        )
     page1 = await db.get_clips(limit=5, offset=0)
     page2 = await db.get_clips(limit=5, offset=5)
     assert len(page1) == 5
@@ -173,6 +180,7 @@ async def test_get_clips_pagination(db: ClipDatabase) -> None:
 # ------------------------------------------------------------------
 # mark_archived / get_clips_to_archive
 # ------------------------------------------------------------------
+
 
 async def test_mark_archived(db: ClipDatabase) -> None:
     await db.add_clip(_make_clip())
@@ -196,6 +204,7 @@ async def test_get_clips_to_archive(db: ClipDatabase) -> None:
 # ------------------------------------------------------------------
 # Statistics
 # ------------------------------------------------------------------
+
 
 async def test_get_stats_empty(db: ClipDatabase) -> None:
     stats = await db.get_stats()
@@ -249,9 +258,10 @@ async def test_get_distinct_tags(db: ClipDatabase) -> None:
 # No-op when DB not initialised
 # ------------------------------------------------------------------
 
+
 async def test_get_clips_sort_oldest(db: ClipDatabase) -> None:
     for i in range(3):
-        ts = f"2024-06-{i+1:02d}T00:00:00+00:00"
+        ts = f"2024-06-{i + 1:02d}T00:00:00+00:00"
         await db.add_clip(_make_clip(f"c{i}", timestamp=ts))
     clips = await db.get_clips(sort="oldest")
     assert clips[0]["id"] == "c0"
@@ -260,7 +270,7 @@ async def test_get_clips_sort_oldest(db: ClipDatabase) -> None:
 
 async def test_get_clips_sort_newest(db: ClipDatabase) -> None:
     for i in range(3):
-        ts = f"2024-06-{i+1:02d}T00:00:00+00:00"
+        ts = f"2024-06-{i + 1:02d}T00:00:00+00:00"
         await db.add_clip(_make_clip(f"c{i}", timestamp=ts))
     clips = await db.get_clips(sort="newest")
     assert clips[0]["id"] == "c2"
@@ -292,3 +302,53 @@ async def test_operations_without_init_are_safe() -> None:
     assert await d.star_clip("x", True) is False
     assert await d.set_tags("x", []) is False
     assert await d.delete_clip("x") is False
+
+
+# ------------------------------------------------------------------
+# Activity data
+# ------------------------------------------------------------------
+
+
+async def test_get_activity_data_empty(db: ClipDatabase) -> None:
+    data = await db.get_activity_data(days=7)
+    assert data == []
+
+
+async def test_get_activity_data_returns_rows(db: ClipDatabase) -> None:
+    now = datetime.now(timezone.utc)
+    for i in range(3):
+        ts = (now - timedelta(hours=i)).isoformat()
+        await db.add_clip(_make_clip(f"act{i}", timestamp=ts))
+    data = await db.get_activity_data(days=1)
+    assert len(data) >= 1
+    row = data[0]
+    assert "date" in row
+    assert "hour" in row
+    assert "count" in row
+    assert isinstance(row["count"], int)
+    assert row["count"] >= 1
+
+
+async def test_get_activity_data_excludes_old_clips(db: ClipDatabase) -> None:
+    old_ts = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    await db.add_clip(_make_clip("old_clip", timestamp=old_ts))
+    data = await db.get_activity_data(days=7)
+    assert data == []
+
+
+async def test_get_activity_data_counts_correctly(db: ClipDatabase) -> None:
+    base = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    today_str = base.date().isoformat()
+    hour = base.hour
+    for i in range(4):
+        ts = (base + timedelta(minutes=i)).isoformat()
+        await db.add_clip(_make_clip(f"batch{i}", timestamp=ts))
+    data = await db.get_activity_data(days=1)
+    matching = [r for r in data if r["date"] == today_str and r["hour"] == hour]
+    assert len(matching) == 1
+    assert matching[0]["count"] == 4
+
+
+async def test_get_activity_data_without_init() -> None:
+    d = ClipDatabase(Path("/tmp/neveropened3.db"))
+    assert await d.get_activity_data() == []

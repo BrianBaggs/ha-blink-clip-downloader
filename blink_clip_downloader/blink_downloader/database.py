@@ -335,3 +335,28 @@ class ClipDatabase:
             except json.JSONDecodeError:
                 pass
         return sorted(all_tags)
+
+    async def get_activity_data(self, days: int = 7) -> list[dict[str, Any]]:
+        """Return per-hour clip counts for the last *days* days.
+
+        Each row: ``{"date": "YYYY-MM-DD", "hour": 0-23, "count": n}``.
+        Useful for rendering an activity heat-map in the UI.
+        """
+        if self._db is None:
+            return []
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        async with self._db.execute(
+            """
+            SELECT
+                date(timestamp)                        AS date,
+                CAST(strftime('%H', timestamp) AS INTEGER) AS hour,
+                COUNT(*)                               AS count
+            FROM clips
+            WHERE timestamp >= ?
+            GROUP BY date, hour
+            ORDER BY date, hour
+            """,
+            (cutoff,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [dict(r) for r in rows]

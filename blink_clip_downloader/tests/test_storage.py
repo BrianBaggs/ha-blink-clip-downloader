@@ -7,7 +7,6 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
 
 from blink_downloader.storage import StorageManager, _cleanup_empty_dirs, _safe_name
 
@@ -69,15 +68,18 @@ def test_resolve_path_no_camera_org(tmp_path):
 
 
 def test_resolve_path_flat(tmp_path):
-    s = make_storage(
-        tmp_path, organize_by_camera=False, organize_by_date=False
-    )
+    s = make_storage(tmp_path, organize_by_camera=False, organize_by_date=False)
     p = s.resolve_path("Front Door", TS, "clip123")
     assert p.parent == tmp_path / "clips"
 
 
 def test_resolve_path_custom_format_tokens(tmp_path):
-    s = make_storage(tmp_path, filename_format="{id}_{date}", organize_by_camera=False, organize_by_date=False)
+    s = make_storage(
+        tmp_path,
+        filename_format="{id}_{date}",
+        organize_by_camera=False,
+        organize_by_date=False,
+    )
     p = s.resolve_path("Cam", TS, "abc99")
     assert p.stem == "abc99_2024-06-15"
 
