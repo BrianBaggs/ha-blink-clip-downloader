@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.1.0
+
+### Bug fixes
+
+- **Fixed `/bin/sh: can't open /init: Permission denied` crash on HA OS** —
+  Switched from the S6-overlay v3 `CMD`-based one-shot mechanism to a proper
+  S6v3 **longrun service definition** at
+  `/etc/s6-overlay/s6-rc.d/blink-downloader/`.  The old `CMD ["/run.sh"]`
+  approach triggered an S6v3 internal shutdown path that calls `/init` via
+  `/bin/sh`; `/init` is mode 711 in the base image so the shell read fails.
+  Using a named longrun service bypasses that shutdown path entirely.
+- **AppArmor updated** — added `/etc/s6-overlay/**` read and
+  `/run/s6*/**` read-write rules so the S6v3 runtime state directories are
+  accessible within the add-on's AppArmor sandbox.
+- **Fixed `webhook_url` schema** — changed from `"url?"` to `"str?"` so
+  leaving the field blank no longer causes `expected a URL` validation errors
+  when saving add-on configuration.
+- **Fixed base image tag** — corrected `build.yaml` and `Dockerfile` to use
+  the full arch-prefixed Alpine tag
+  (`ghcr.io/home-assistant/{arch}-base-python:3.12-alpine3.20`), resolving
+  the `image not found` build error.
+- **Fixed UTC date mismatch in stats** — `get_stats()` and `get_camera_stats()`
+  now use `datetime.now(timezone.utc).date()` instead of `date.today()`,
+  preventing incorrect "today" counts in US timezones after 5 pm UTC−5/−8.
+
+### Improvements
+
+- **Web 2FA UI** — a sanitised 6-digit input overlay appears automatically in
+  the Blink Clips web panel whenever Blink requires a verification code; no
+  more manual `/data/two_fa_code.txt` file editing.
+- **HA Blink integration coexistence** — the add-on and the built-in HA Blink
+  integration can run side-by-side without conflict.  They use independent API
+  sessions and separate credential storage (`/data/auth_credentials.json` vs.
+  HA's own storage); the add-on does not touch any Blink-integration entities.
+
 ## 2.0.0
 
 ### New features

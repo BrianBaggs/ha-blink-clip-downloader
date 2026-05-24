@@ -43,27 +43,53 @@ After starting, the clip library is accessible two ways:
 
 ---
 
+## Using alongside the HA Blink Integration
+
+This add-on is **fully compatible** with the built-in Home Assistant Blink integration
+(`Settings → Devices & Services → Blink`). You can and should run both at the same time:
+
+| | HA Blink Integration | This Add-on |
+|---|---|---|
+| **Purpose** | Live camera view, motion sensors, arm/disarm | Clip archiving, library & playback |
+| **Auth storage** | HA's own credential storage | `/data/auth_credentials.json` |
+| **API session** | Independent | Independent |
+| **HA entities** | `binary_sensor.blink_*`, `camera.blink_*` | `sensor.blink_downloader_status` |
+
+Each authenticates with Blink separately and holds its own session token.
+They do not share state and cannot interfere with each other.
+
+> **Tip:** If you want automations that react to motion *and* archive clips, the
+> recommended setup is: let the HA Blink integration own `binary_sensor.blink_*`
+> entities for motion triggers, and enable `watch_ha_events` in this add-on so that
+> every time a motion sensor fires, the add-on immediately polls Blink for the new
+> clip — combining real-time alerts from the integration with permanent local storage
+> from the add-on.
+
+> **API rate limits:** Both systems make independent API calls to Blink.  With default
+> settings (`poll_interval: 300`) the combined traffic is well within Blink's rate
+> limits, but if you drop `poll_interval` below 60 seconds you may occasionally see
+> transient authentication errors on one or both.
+
+---
+
 ## Two-Factor Authentication (2FA)
 
-If your Blink account has 2FA enabled, the add-on will pause after the first login
-attempt and log:
+If your Blink account has 2FA enabled, an **input overlay** appears automatically
+in the **Blink Clips** web panel the first time the add-on needs a verification code.
+Enter the 6-digit code from your authenticator app or SMS directly in the browser —
+no SSH or file editing required.
 
-```
-2FA required! Write your 6-digit code to: /data/two_fa_code.txt
-```
-
-Connect via SSH or the Terminal add-on and run:
-
-```bash
-echo "123456" > /data/two_fa_code.txt
-```
-
-Replace `123456` with the actual code from your authenticator app or SMS.
-The add-on detects the file within seconds, completes login, and deletes the file.
+The overlay dismisses automatically once the code is accepted and the library loads.
 
 After a successful login, auth tokens are cached in `/data/auth_credentials.json`
 and reused on subsequent starts. You will only be prompted for 2FA again if the
 refresh token expires (typically after 30+ days with the add-on stopped).
+
+> **Legacy fallback:** You can still write the code to `/data/two_fa_code.txt` via
+> SSH if the web UI is unavailable:
+> ```bash
+> echo "123456" > /data/two_fa_code.txt
+> ```
 
 ---
 
@@ -336,3 +362,9 @@ Downloaded clips are saved under the `share` folder, accessible via:
 
 **Clips from only one camera are downloading**
 - Check `camera_filter` — names must match exactly as shown in the Blink app.
+
+**`/bin/sh: can't open /init: Permission denied` in the add-on log**
+- This was a known issue fixed in v2.1.0.  Update the add-on and rebuild/reinstall
+  to get the corrected S6-overlay v3 service definition.  If you are already on
+  v2.1.0 and still see it, check that the add-on was fully reinstalled (not just
+  restarted) so the new container image is in use.
