@@ -69,8 +69,7 @@ options:
   ha_notification_title: "Blink Clip Downloaded"
 
   # --- Extra features ---
-  # webhook_url intentionally omitted: "url?" only accepts a real URL or null.
-  # Leave blank in the HA UI to disable; fill in a full https:// URL to enable.
+  webhook_url: ""
   create_clip_manifest: true
 
   # --- Clip library database ---
@@ -121,7 +120,7 @@ schema:
   retry_delay: "float(0,300)"
   notify_ha: "bool"
   ha_notification_title: "str"
-  webhook_url: "url?"
+  webhook_url: "str?"
   create_clip_manifest: "bool"
   enable_library_db: "bool"
   enable_media_server: "bool"

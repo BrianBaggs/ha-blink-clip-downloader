@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -260,9 +260,10 @@ class ClipDatabase:
         if self._db is None:
             return {}
 
-        today = date.today().isoformat()
-        yesterday = (date.today() - timedelta(days=1)).isoformat()
-        week_ago = (date.today() - timedelta(days=7)).isoformat()
+        _now_utc = datetime.now(timezone.utc)
+        today = _now_utc.date().isoformat()
+        yesterday = (_now_utc - timedelta(days=1)).date().isoformat()
+        week_ago = (_now_utc - timedelta(days=7)).date().isoformat()
 
         queries = {
             "total_count": "SELECT COUNT(*) FROM clips WHERE archived=0",
@@ -287,8 +288,9 @@ class ClipDatabase:
         if self._db is None:
             return []
 
-        today = date.today().isoformat()
-        week_ago = (date.today() - timedelta(days=7)).isoformat()
+        _now_utc = datetime.now(timezone.utc)
+        today = _now_utc.date().isoformat()
+        week_ago = (_now_utc - timedelta(days=7)).date().isoformat()
 
         async with self._db.execute(
             """
