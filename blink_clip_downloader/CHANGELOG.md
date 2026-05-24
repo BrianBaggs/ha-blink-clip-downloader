@@ -1,5 +1,53 @@
 # Changelog
 
+## 2.1.2
+
+### Bug fixes
+
+- **Fixed `/init: exec: line 45: s6-overlay-suexec: Permission Denied`** —
+  Root cause identified through tarball inspection of the HA base image:
+
+  **Why this error occurs:**  `s6-overlay-suexec` is a *setuid-root* ELF
+  binary whose real path inside the container is
+  `/package/admin/s6-overlay-helpers-<version>/command/s6-overlay-suexec`.
+  It is exposed via a two-hop symlink chain:
+  `/command/s6-overlay-suexec` →
+  `/package/admin/s6-overlay-helpers/command/s6-overlay-suexec` →
+  real binary.  AppArmor resolves symlinks to their real path when checking
+  `execve` permissions — so the `/command/** mrix,` rule that was already
+  in the profile covered only the *symlink name*, not the *binary the kernel
+  actually loads*.  The `Permission Denied` was AppArmor denying exec on
+  `/package/admin/s6-overlay-helpers-*/command/s6-overlay-suexec`.
+
+  **Fixes applied to `apparmor.txt`:**
+
+  1. Added `/package/** mrix,` — covers all S6-overlay real binary paths
+     (`s6-overlay-helpers`, `s6`, `s6-rc`, `s6-linux-init`, `execline`,
+     `s6-portable-utils`, etc.) regardless of version number.
+
+  2. Added Linux capabilities block:
+     `capability setuid, setgid, chown, dac_override, fowner,
+     net_bind_service` — `s6-overlay-suexec` is setuid root and calls
+     `setresuid()`/`setresgid()` to switch UIDs; without `capability setuid`
+     and `capability setgid` the kernel refuses the UID-switch even after
+     the `execve` succeeds.
+
+  3. Expanded runtime path coverage: `/run/service/** rwix,`,
+     `/etc/services.d/**`, `/etc/cont-init.d/**`, `/etc/cont-finish.d/**`,
+     `/etc/fix-attrs.d/**` — all paths the S6 startup sequence reads and
+     executes from.
+
+  4. Added broad `/bin/** mrix,`, `/usr/bin/** mrix,`, `/sbin/** mrix,`,
+     `/lib/** mr,`, `/usr/lib/** mr,` — S6 supervision scripts invoke many
+     Alpine utilities; without these the shell inside S6 service scripts
+     could not execute basic commands.
+
+  5. Removed over-specific `deny /etc/** w,` / `deny /bin/** wl,` /
+     `deny /sbin/** wl,` deny rules that conflicted with the new broad
+     execute rules.  The profile relies on AppArmor's default-deny posture
+     for anything not explicitly allowed; the only retained `deny` is
+     `deny /root/** rw,` to protect the root home directory.
+
 ## 2.1.1
 
 ### Bug fixes

@@ -4,58 +4,127 @@ profile blink_clip_downloader flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
   #include <abstractions/python>
 
+  # -----------------------------------------------------------------------
+  # Linux capabilities required by S6-overlay v3
+  #
+  # s6-overlay-suexec is a *setuid-root* ELF binary.  It switches UID/GID
+  # during container init so S6 can run supervised services as a non-root
+  # user.  Without these capabilities the kernel refuses the UID-switch even
+  # if the binary is allowed to execute.
+  # -----------------------------------------------------------------------
+  capability setuid,
+  capability setgid,
+  capability chown,
+  capability dac_override,
+  capability fowner,
+  capability net_bind_service,
+
   # Network access for Blink API and HA supervisor
   network tcp,
   network udp,
 
   # -----------------------------------------------------------------------
-  # S6-overlay v3 init and supervision tree
+  # S6-overlay v3 init binary
   #
-  # /init is the S6 ELF binary (ENTRYPOINT in the base image, mode 711).
-  # Supervisor v2026.x AppArmor enforcement requires it to be explicitly
-  # allowed; without this the kernel denies open() and surfaces the error
-  # as "/bin/sh: can't open /init: Permission denied".
+  # /init is the shell script ENTRYPOINT baked into the base image.
+  # It must be allowed with mrix so the kernel can execute it and so that
+  # the shell interpreter can read it (shebang resolution).
   # -----------------------------------------------------------------------
-  /init                          mrix,
+  /init mrix,
 
-  # S6-overlay v3 command binaries (with-contenv, s6-*, execlineb, …)
-  # /command/ is the canonical path in S6v3; /usr/bin symlinks also present.
-  /command/                      r,
-  /command/**                    mrix,
-  /usr/bin/s6*                   mrix,
-  /usr/lib/s6*/                  r,
-  /usr/lib/s6*/**                mr,
+  # -----------------------------------------------------------------------
+  # S6-overlay v3 package binaries — real paths
+  #
+  # All S6-overlay executables live under /package/admin/ at their real
+  # (non-symlink) paths, e.g.:
+  #   /package/admin/s6-overlay-helpers-0.1.2.1/command/s6-overlay-suexec
+  #   /package/admin/s6-2.14.0.1/command/s6-svscan
+  #   /package/admin/execline-2.9.8.1/command/execlineb
+  #   /package/admin/s6-rc-0.6.0.0/command/s6-rc
+  #   /package/admin/s6-linux-init-1.2.0.0/command/s6-linux-init-maker
+  #
+  # AppArmor resolves symlinks and checks permissions on the *real* path.
+  # /command/** alone is NOT sufficient — the resolved target must be
+  # permitted.  A single wildcard rule on /package/** covers all versions.
+  # -----------------------------------------------------------------------
+  /package/                         r,
+  /package/**                       mrix,
 
-  # S6-overlay v3 runtime state directories
-  /run/s6/                       r,
-  /run/s6/**                     rwix,
-  /run/s6-rc*/                   r,
-  /run/s6-rc*/**                 rw,
-  /run/service/                  r,
-  /run/service/**                rw,
-  /run/container_environment/    r,
-  /run/container_environment/**  r,
+  # -----------------------------------------------------------------------
+  # /command/ symlink tree
+  #
+  # Two-hop symlinks:
+  #   /command/X
+  #     -> /package/admin/s6-overlay-helpers/command/X   (dir symlink)
+  #        -> /package/admin/s6-overlay-helpers-VERSION/command/X  (real file)
+  #
+  # We allow both the symlink names and (above) the real targets.
+  # -----------------------------------------------------------------------
+  /command/                         r,
+  /command/**                       mrix,
 
-  # S6-overlay v3 service definitions (read + map + execute for run scripts)
-  /etc/s6-overlay/               r,
-  /etc/s6-overlay/**             mr,
-  /etc/s6-overlay/s6-rc.d/blink-downloader/run  mrix,
+  # -----------------------------------------------------------------------
+  # S6-overlay v3 runtime state
+  #
+  # S6 creates and manages files under /run/s6*, /run/service, and
+  # /run/container_environment during container startup.
+  # rwix is needed because S6 both writes state files and execs scripts
+  # found in these directories.
+  # -----------------------------------------------------------------------
+  /run/                             rw,
+  /run/s6/                          rw,
+  /run/s6/**                        mrwix,
+  /run/s6-rc*/                      rw,
+  /run/s6-rc*/**                    rw,
+  /run/service/                     rw,
+  /run/service/**                   rwix,
+  /run/container_environment/       r,
+  /run/container_environment/**     r,
 
-  # Startup script helpers (with-contenv loads supervisor env; bashio provides logging)
-  /usr/bin/with-contenv mrix,
-  /usr/bin/bashio        mrix,
-  /run.sh                mrix,
+  # -----------------------------------------------------------------------
+  # S6-overlay v3 service definitions and legacy hook directories
+  # -----------------------------------------------------------------------
+  /etc/s6-overlay/                  r,
+  /etc/s6-overlay/**                mrix,
+  /etc/services.d/                  r,
+  /etc/services.d/**                mrix,
+  /etc/cont-init.d/                 r,
+  /etc/cont-init.d/**               mrix,
+  /etc/cont-finish.d/               r,
+  /etc/cont-finish.d/**             mrix,
+  /etc/fix-attrs.d/                 r,
+  /etc/fix-attrs.d/**               mrix,
 
-  # Shell (needed by bashio and s6 supervision scripts)
-  /bin/sh                mrix,
-  /bin/bash              mrix,
-  /usr/bin/env           mrix,
+  # -----------------------------------------------------------------------
+  # Startup helpers
+  # -----------------------------------------------------------------------
+  /usr/bin/with-contenv             mrix,
+  /usr/bin/bashio                   mrix,
+  /usr/lib/bashio/                  r,
+  /usr/lib/bashio/**                mrix,
+  /run.sh                           mrix,
+
+  # Shell and core utilities (used by bashio, s6 supervision scripts, execlineb)
+  /bin/sh                           mrix,
+  /bin/bash                         mrix,
+  /bin/**                           mrix,
+  /usr/bin/env                      mrix,
+  /usr/bin/**                       mrix,
+  /sbin/**                          mrix,
+  /usr/sbin/**                      mrix,
+
+  # System libraries (dynamic linker, libc, etc.)
+  /lib/                             r,
+  /lib/**                           mr,
+  /usr/lib/                         r,
+  /usr/lib/**                       mr,
+  /lib64/                           r,
+  /lib64/**                         mr,
 
   # Python runtime
-  /usr/bin/python3*  mrix,
-  /usr/local/bin/python3* mrix,
-  /usr/local/lib/python3*/** mr,
-  /usr/lib/python3*/**    mr,
+  /usr/local/bin/python3*           mrix,
+  /usr/local/lib/python3*/**        mr,
+  /usr/lib/python3*/**              mr,
 
   # App packages installed via pip (dist-packages and site-packages variants)
   /usr/local/lib/python3*/dist-packages/** mr,
@@ -63,25 +132,22 @@ profile blink_clip_downloader flags=(attach_disconnected,mediate_deleted) {
   /usr/lib/python3*/dist-packages/**       mr,
 
   # Persistent data directory (auth, database, tracker, stats, manifests)
-  /data/   r,
-  /data/** rw,
+  /data/                            r,
+  /data/**                          rw,
 
   # Downloaded clips and share mount
-  /share/   r,
-  /share/** rw,
+  /share/                           r,
+  /share/**                         rw,
 
   # Temporary files (Python internals, aiohttp, zipfile, etc.)
-  /tmp/   r,
-  /tmp/** rw,
+  /tmp/                             r,
+  /tmp/**                           rw,
 
   # Proc (read-only minimal access)
-  @{PROC}/@{pid}/fd/     r,
-  @{PROC}/@{pid}/status  r,
-  @{PROC}/sys/kernel/random/uuid r,
+  @{PROC}/@{pid}/fd/                r,
+  @{PROC}/@{pid}/status             r,
+  @{PROC}/sys/kernel/random/uuid    r,
 
-  # Deny write access to system directories
-  deny /etc/** w,
-  deny /bin/** wl,
-  deny /sbin/** wl,
-  deny /root/** rw,
+  # Deny direct writes to sensitive system directories
+  deny /root/**                     rw,
 }

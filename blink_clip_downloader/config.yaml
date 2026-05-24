@@ -1,5 +1,5 @@
 name: Blink Clip Downloader
-version: "2.1.1"
+version: "2.1.2"
 slug: blink_clip_downloader
 description: >-
   Continuously downloads Blink camera clips to local storage with timestamps,
