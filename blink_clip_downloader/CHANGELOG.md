@@ -1,5 +1,43 @@
 # Changelog
 
+## 2.1.1
+
+### Bug fixes
+
+- **Fixed `/bin/sh: can't open /init: Permission denied` — root cause found and
+  eliminated** — Thorough research against HA OS 17.3 / Supervisor 2026.x revealed
+  three compounding issues that together produced the error:
+
+  1. **AppArmor profile was blocking S6's own init binary.**  HA Supervisor 2026.x
+     enforces AppArmor more strictly than earlier versions.  The profile was missing
+     explicit allow rules for `/init` (the S6-overlay ELF binary), the `/command/`
+     directory (where S6v3 stores `with-contenv` and all supervision binaries),
+     `/bin/sh`, `/bin/bash`, and the full S6 runtime state paths
+     (`/run/s6/**`, `/run/s6-rc*/**`, `/run/service/**`,
+     `/run/container_environment/**`).  Without `/init mrix,`, the kernel denied
+     `open()` on the init binary and the error surfaced exactly as seen.
+     All missing rules have been added to `apparmor.txt`.
+
+  2. **Wrong `with-contenv` shebang path.**  The service `run` script used
+     `#!/usr/bin/with-contenv bashio`.  The canonical, forward-compatible path in
+     S6-overlay v3 HA base images is `#!/command/with-contenv bashio` — this is
+     what every official HA add-on uses and what the base image's own AppArmor
+     baseline expects.  Updated in both
+     `rootfs/etc/s6-overlay/s6-rc.d/blink-downloader/run` and `rootfs/run.sh`.
+
+  3. **Missing `dependencies.d/base` declaration.**  S6-overlay v3 requires each
+     longrun service to contain an empty file at
+     `s6-rc.d/<service>/dependencies.d/base` to declare that it must not start
+     until the base bundle has fully initialised.  Without it the service could
+     be launched before the container environment (including `SUPERVISOR_TOKEN`)
+     was ready.  The file has been added.
+
+- **Git execute bit set on service `run` script** — `git update-index
+  --chmod=+x` is now applied to
+  `rootfs/etc/s6-overlay/s6-rc.d/blink-downloader/run` and `rootfs/run.sh`
+  so the execute permission is embedded in the repository (`100755`) and
+  survives a clean clone without relying solely on the Dockerfile `chmod`.
+
 ## 2.1.0
 
 ### Bug fixes

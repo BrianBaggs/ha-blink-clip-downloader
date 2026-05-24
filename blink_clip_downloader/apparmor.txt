@@ -8,16 +8,48 @@ profile blink_clip_downloader flags=(attach_disconnected,mediate_deleted) {
   network tcp,
   network udp,
 
+  # -----------------------------------------------------------------------
+  # S6-overlay v3 init and supervision tree
+  #
+  # /init is the S6 ELF binary (ENTRYPOINT in the base image, mode 711).
+  # Supervisor v2026.x AppArmor enforcement requires it to be explicitly
+  # allowed; without this the kernel denies open() and surfaces the error
+  # as "/bin/sh: can't open /init: Permission denied".
+  # -----------------------------------------------------------------------
+  /init                          mrix,
+
+  # S6-overlay v3 command binaries (with-contenv, s6-*, execlineb, …)
+  # /command/ is the canonical path in S6v3; /usr/bin symlinks also present.
+  /command/                      r,
+  /command/**                    mrix,
+  /usr/bin/s6*                   mrix,
+  /usr/lib/s6*/                  r,
+  /usr/lib/s6*/**                mr,
+
+  # S6-overlay v3 runtime state directories
+  /run/s6/                       r,
+  /run/s6/**                     rwix,
+  /run/s6-rc*/                   r,
+  /run/s6-rc*/**                 rw,
+  /run/service/                  r,
+  /run/service/**                rw,
+  /run/container_environment/    r,
+  /run/container_environment/**  r,
+
+  # S6-overlay v3 service definitions (read + map + execute for run scripts)
+  /etc/s6-overlay/               r,
+  /etc/s6-overlay/**             mr,
+  /etc/s6-overlay/s6-rc.d/blink-downloader/run  mrix,
+
   # Startup script helpers (with-contenv loads supervisor env; bashio provides logging)
   /usr/bin/with-contenv mrix,
   /usr/bin/bashio        mrix,
   /run.sh                mrix,
 
-  # S6-overlay v3 service definitions and runtime state
-  /etc/s6-overlay/**                              mr,
-  /etc/s6-overlay/s6-rc.d/blink-downloader/run   mrix,
-  /run/s6*/                                       r,
-  /run/s6*/**                                     rw,
+  # Shell (needed by bashio and s6 supervision scripts)
+  /bin/sh                mrix,
+  /bin/bash              mrix,
+  /usr/bin/env           mrix,
 
   # Python runtime
   /usr/bin/python3*  mrix,
