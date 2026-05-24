@@ -8,36 +8,37 @@ profile blink_clip_downloader flags=(attach_disconnected,mediate_deleted) {
   network tcp,
   network udp,
 
+  # Startup script helpers (with-contenv loads supervisor env; bashio provides logging)
+  /usr/bin/with-contenv mrix,
+  /usr/bin/bashio        mrix,
+  /run.sh                mrix,
+
   # Python runtime
-  /usr/bin/python3* mrix,
+  /usr/bin/python3*  mrix,
   /usr/local/bin/python3* mrix,
   /usr/local/lib/python3*/** mr,
-  /usr/lib/python3*/** mr,
+  /usr/lib/python3*/**    mr,
 
   # App packages installed via pip (dist-packages and site-packages variants)
   /usr/local/lib/python3*/dist-packages/** mr,
   /usr/local/lib/python3*/site-packages/** mr,
-  /usr/lib/python3*/dist-packages/** mr,
+  /usr/lib/python3*/dist-packages/**       mr,
 
   # Persistent data directory (auth, database, tracker, stats, manifests)
-  /data/ r,
+  /data/   r,
   /data/** rw,
 
   # Downloaded clips and share mount
-  /share/ r,
+  /share/   r,
   /share/** rw,
 
   # Temporary files (Python internals, aiohttp, zipfile, etc.)
-  /tmp/ r,
+  /tmp/   r,
   /tmp/** rw,
 
-  # S6-overlay — needed by the finish script to signal halt
-  /run/s6-linux-init-container-results/ r,
-  /run/s6-linux-init-container-results/exitcode rw,
-
-  # Proc and sys (read-only minimal access)
-  @{PROC}/@{pid}/fd/ r,
-  @{PROC}/@{pid}/status r,
+  # Proc (read-only minimal access)
+  @{PROC}/@{pid}/fd/     r,
+  @{PROC}/@{pid}/status  r,
   @{PROC}/sys/kernel/random/uuid r,
 
   # Deny write access to system directories

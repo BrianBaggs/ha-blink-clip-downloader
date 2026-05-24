@@ -19,12 +19,9 @@ COPY blink_downloader/ /app/blink_downloader/
 RUN pip3 install --no-cache-dir /app \
     && rm -rf /app
 
-# S6 service scripts and any other rootfs files
+# Startup script
 COPY rootfs /
-
-RUN chmod a+x \
-    /etc/services.d/blink_downloader/run \
-    /etc/services.d/blink_downloader/finish
+RUN chmod a+x /run.sh
 
 LABEL \
     org.opencontainers.image.title="Blink Clip Downloader" \
@@ -37,3 +34,5 @@ LABEL \
     io.hass.arch="${BUILD_ARCH}" \
     io.hass.type="addon" \
     io.hass.version="${BUILD_VERSION}"
+
+CMD ["/run.sh"]
