@@ -175,10 +175,12 @@ class BlinkClipDownloaderApp:
             {"friendly_name": "Blink Clip Downloader", "status": "connected"},
         )
 
-        # Expose connection status to the media server status endpoint.
+        # Expose connection status (and initial disk stats) to the media server
+        # status endpoint so the Storage card is populated right away.
         self._media_server.extra_status = {
             "connected": True,
             "account_id": getattr(self._downloader._blink, "account_id", None),
+            "disk": self._storage.disk_stats(),
         }
 
         if self._config.watch_ha_events and self._config.supervisor_token:
@@ -278,6 +280,11 @@ class BlinkClipDownloaderApp:
             await self._on_clips_downloaded(downloaded)
 
         await self._digest.check_and_send()
+
+        # Always refresh disk stats so the web UI Storage section stays current
+        # even when no new clips were downloaded this cycle.
+        self._media_server.extra_status["disk"] = self._storage.disk_stats()
+
         await self._write_stats()
         _LOGGER.debug("Poll cycle finished (%d new clip(s))", len(downloaded))
 
@@ -312,6 +319,8 @@ class BlinkClipDownloaderApp:
         disk = self._storage.disk_stats()
         last_dl = datetime.now(timezone.utc).isoformat()
         self._media_server.extra_status["last_download"] = last_dl
+        # Keep disk stats fresh so the Storage card in the web UI is accurate.
+        self._media_server.extra_status["disk"] = disk
         await self._notifier.update_sensor(
             "sensor.blink_downloader_status",
             str(tracker_stats.get("total_downloaded", 0)),

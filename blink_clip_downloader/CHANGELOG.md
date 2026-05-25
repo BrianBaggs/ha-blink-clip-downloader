@@ -1,5 +1,74 @@
 # Changelog
 
+## 2.5.4
+
+### Bug fixes
+
+- **Fixed Storage section showing nothing in the sidebar and Status page** —
+  `_handle_stats` was reading `request.app.get("disk_stats")` which queries
+  aiohttp's internal Application data store — a completely separate dict that
+  is never populated with disk information.  The actual disk data lives in
+  `self.extra_status` (the `MediaServer` instance dict set by `app.py`).
+
+  **Fixes applied:**
+  1. **`media_server.py` `_handle_stats`** — changed the lookup from
+     `request.app.get("disk_stats")` → `self.extra_status.get("disk")`.
+  2. **`app.py` connection point** — `extra_status` now includes
+     `"disk": self._storage.disk_stats()` immediately after a successful Blink
+     login, so storage is visible even before the first clip download.
+  3. **`app.py` `_on_clips_downloaded`** — refreshes `extra_status["disk"]`
+     after every successful download batch.
+  4. **`app.py` `_poll_cycle`** — refreshes `extra_status["disk"]` at the end
+     of every poll cycle (even when no new clips were downloaded) so the web UI
+     always reflects current disk usage.
+
+- **Fixed 2FA Verify button re-enabling after successful submission** — The
+  `finally` block in `submitTwoFA()` was unconditionally re-enabling the button
+  and resetting its label to "Verify", making it trivial to accidentally submit
+  the same code twice (which Blink rejects).
+
+  The `finally` block has been removed.  The button is now re-enabled (with
+  "Verify" text) **only on error** (HTTP failure or network exception).  On
+  success it stays disabled and shows "✓ Submitted", relying on the 3-second
+  `checkAuthStatus` poll to automatically close the overlay once the add-on
+  confirms sign-in.
+
+### Improvements
+
+- **Smoother video playback** — Three complementary changes reduce the
+  micro-stalls that caused choppy playback:
+
+  1. **Larger I/O chunks** — `_handle_stream` now reads 256 KiB at a time
+     (up from 64 KiB) for both full-file and range-request streaming.  Fewer
+     round-trips between the server and browser means the browser can fill its
+     decode buffer faster.
+
+  2. **`Cache-Control: public, max-age=3600`** — both streaming paths now send
+     this header so the browser can cache video segments locally.  Seeking to an
+     already-watched position no longer triggers a new server request.
+
+  3. **Video.js `preload: 'auto'` and native HTML5 video** — The embedded
+     player now pre-loads video content immediately instead of waiting until the
+     user clicks play (`preload: 'metadata'` → `preload: 'auto'`).  The VHS
+     override (`overrideNative`) has been disabled for plain MP4 progressive
+     downloads so the browser's own highly-optimised video decoder handles
+     buffering directly without going through the VHS (HLS) layer.
+
+### Tests
+
+- `test_stats_returns_disk_from_extra_status` — asserts that `/api/stats`
+  returns the `disk` object when `extra_status["disk"]` is set.
+- `test_stats_no_disk_when_extra_status_empty` — asserts the `disk` key is
+  absent when `extra_status` is empty (server just started).
+- `test_stream_full_has_cache_control` — full-file stream response includes a
+  `Cache-Control` header.
+- `test_stream_range_has_cache_control` — partial-content (206) response also
+  includes `Cache-Control`.
+- `test_poll_cycle_updates_disk_stats_in_extra_status` — `_poll_cycle` always
+  refreshes `extra_status["disk"]`, even when no new clips were downloaded.
+- `test_on_clips_downloaded_updates_disk_stats_in_extra_status` — download
+  callback also updates `extra_status["disk"]`.
+
 ## 2.5.3
 
 ### Bug fixes

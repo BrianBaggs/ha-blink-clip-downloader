@@ -546,3 +546,81 @@ async def test_index_contains_twofa_overlay(client: TestClient) -> None:
     assert "twofa-overlay" in body
     assert "twofa-input" in body
     assert "twofa-submit" in body
+
+
+# ---------------------------------------------------------------------------
+# /api/stats — disk field from extra_status (not request.app)
+# ---------------------------------------------------------------------------
+
+
+async def test_stats_returns_disk_from_extra_status(
+    db: ClipDatabase, tmp_path: Path
+) -> None:
+    """Storage section is populated from MediaServer.extra_status['disk'], not
+    from request.app (which is aiohttp's internal dict and is never populated)."""
+    server = MediaServer(db=db, download_path=tmp_path, port=0)
+    server.extra_status = {
+        "connected": True,
+        "disk": {
+            "used_mb": 512.0,
+            "free_gb": 10.5,
+            "used_bytes": 536870912,
+            "free_bytes": 11274289152,
+            "total_bytes": 21474836480,
+            "total_gb": 20.0,
+            "quota_bytes": 10737418240,
+            "quota_gb": 10.0,
+        },
+    }
+    tc = TestClient(TestServer(server._build_app()))
+    await tc.start_server()
+    try:
+        resp = await tc.get("/api/stats")
+        assert resp.status == 200
+        data = await resp.json()
+        assert "disk" in data, "disk key must be present when extra_status has it"
+        assert data["disk"]["used_mb"] == 512.0
+        assert data["disk"]["free_gb"] == 10.5
+        assert data["connected"] is True
+    finally:
+        await tc.close()
+
+
+async def test_stats_no_disk_when_extra_status_empty(client: TestClient) -> None:
+    """When extra_status is empty (server just started), disk is absent from
+    the stats response — the JS handles this gracefully with `if (s.disk)`."""
+    resp = await client.get("/api/stats")
+    assert resp.status == 200
+    data = await resp.json()
+    # 'disk' key should not appear since extra_status is empty
+    assert "disk" not in data
+
+
+# ---------------------------------------------------------------------------
+# Streaming — Cache-Control header present for smooth video playback
+# ---------------------------------------------------------------------------
+
+
+async def test_stream_full_has_cache_control(
+    client: TestClient, db: ClipDatabase, tmp_path: Path
+) -> None:
+    """Full-file stream response carries Cache-Control so the browser can cache
+    the video and avoid re-fetching on seek (reduces choppiness)."""
+    fp = tmp_path / "cc.mp4"
+    fp.write_bytes(b"Y" * 512)
+    await db.add_clip(_make_clip("cc1", path=str(fp)))
+    resp = await client.get("/api/clips/cc1/stream")
+    assert resp.status == 200
+    assert "cache-control" in {h.lower() for h in resp.headers}
+
+
+async def test_stream_range_has_cache_control(
+    client: TestClient, db: ClipDatabase, tmp_path: Path
+) -> None:
+    """Partial-content (range) response also carries Cache-Control."""
+    fp = tmp_path / "ccr.mp4"
+    fp.write_bytes(b"Z" * 512)
+    await db.add_clip(_make_clip("ccr1", path=str(fp)))
+    resp = await client.get("/api/clips/ccr1/stream", headers={"Range": "bytes=0-99"})
+    assert resp.status == 206
+    assert "cache-control" in {h.lower() for h in resp.headers}

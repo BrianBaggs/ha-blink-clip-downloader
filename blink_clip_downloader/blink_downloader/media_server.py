@@ -528,7 +528,7 @@ action:
     <div class="video-wrap">
       <!-- Video.js – initialized once, source swapped per clip -->
       <video id="modal-video" class="video-js vjs-big-play-centered"
-             preload="metadata" playsinline>
+             preload="auto" playsinline>
         <p class="vjs-no-js">JavaScript is required to play videos.</p>
       </video>
       <div class="vid-nav">
@@ -666,11 +666,17 @@ function ensurePlayer() {
     fluid: true,
     responsive: true,
     controls: true,
-    preload: 'metadata',
+    // 'auto' tells the browser to start buffering immediately so playback
+    // starts without stalling once the user clicks play.
+    preload: 'auto',
     playbackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2],
     html5: {
-      vhs: { overrideNative: !videojs.browser.IS_SAFARI },
-      nativeVideoTracks: false,
+      // For plain MP4 files let the native browser video implementation
+      // handle buffering (smoother than VHS for progressive downloads).
+      vhs: { overrideNative: false },
+      nativeVideoTracks: true,
+      nativeAudioTracks: true,
+      nativeTextTracks: true,
     },
     controlBar: {
       skipButtons: { forward: 10, backward: 10 },
@@ -1336,15 +1342,22 @@ async function submitTwoFA() {
       const txt = await resp.text().catch(() => 'Error');
       $('twofa-msg').textContent = txt;
       $('twofa-msg').style.color = 'var(--danger)';
+      // Re-enable so the user can correct and retry.
+      btn.disabled = false;
+      btn.textContent = 'Verify';
     } else {
-      $('twofa-msg').textContent = 'Code submitted — please wait…';
+      // Keep button disabled — checkAuthStatus() polls every 3 s and will
+      // close the overlay automatically once the add-on confirms sign-in.
+      // Preventing re-submission avoids duplicate code errors from Blink.
+      btn.textContent = '✓ Submitted';
+      $('twofa-msg').textContent = 'Code submitted — waiting for confirmation…';
       $('twofa-msg').style.color = 'var(--text)';
       $('twofa-input').value = '';
     }
   } catch {
     $('twofa-msg').textContent = 'Network error — could not submit code.';
     $('twofa-msg').style.color = 'var(--danger)';
-  } finally {
+    // Re-enable so the user can try again after the network recovers.
     btn.disabled = false;
     btn.textContent = 'Verify';
   }
@@ -1562,6 +1575,9 @@ class MediaServer:
                         "Content-Range": f"bytes {start}-{end}/{file_size}",
                         "Content-Length": str(chunk_len),
                         "Accept-Ranges": "bytes",
+                        # Allow browsers to cache video segments so seeks are
+                        # served from cache without re-fetching from the server.
+                        "Cache-Control": "public, max-age=3600",
                     },
                 )
                 await response.prepare(request)
@@ -1569,7 +1585,10 @@ class MediaServer:
                     await fh.seek(start)
                     remaining = chunk_len
                     while remaining > 0:
-                        data = await fh.read(min(65_536, remaining))
+                        # 256 KiB chunks — larger buffers mean fewer round
+                        # trips, reducing the micro-stalls that cause choppy
+                        # playback especially on slower storage.
+                        data = await fh.read(min(262_144, remaining))
                         if not data:
                             break
                         await response.write(data)
@@ -1582,12 +1601,13 @@ class MediaServer:
                 "Content-Length": str(file_size),
                 "Accept-Ranges": "bytes",
                 "Content-Disposition": f'inline; filename="{file_path.name}"',
+                "Cache-Control": "public, max-age=3600",
             }
         )
         await response.prepare(request)
         async with aiofiles.open(file_path, "rb") as fh:
             while True:
-                data = await fh.read(65_536)
+                data = await fh.read(262_144)
                 if not data:
                     break
                 await response.write(data)
@@ -1613,7 +1633,10 @@ class MediaServer:
 
     async def _handle_stats(self, request: web.Request) -> web.Response:
         stats = await self._db.get_stats()
-        disk_raw = request.app.get("disk_stats")
+        # extra_status is MediaServer's own dict (populated by app.py after
+        # each poll cycle).  Do NOT read from request.app — that is aiohttp's
+        # internal Application dict and is never populated with disk_stats.
+        disk_raw = self.extra_status.get("disk")
         if disk_raw:
             stats["disk"] = disk_raw
         stats.update(self.extra_status)

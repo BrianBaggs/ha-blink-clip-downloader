@@ -481,3 +481,50 @@ def test_on_blink_motion_cleared_schedules_timer(app):
 
     assert called_with.get("delay") == 15
     assert called_with.get("callback") == app._activate_fast_poll
+
+
+# ---------------------------------------------------------------------------
+# Disk stats propagation to media server extra_status (v2.5.4)
+# ---------------------------------------------------------------------------
+
+
+async def test_poll_cycle_updates_disk_stats_in_extra_status(app):
+    """_poll_cycle must refresh extra_status['disk'] even when no clips downloaded."""
+    fake_disk = {
+        "used_mb": 42.0,
+        "free_gb": 8.5,
+        "used_bytes": 0,
+        "free_bytes": 0,
+        "total_bytes": 0,
+        "total_gb": 0.0,
+        "quota_bytes": 0,
+        "quota_gb": 0,
+    }
+    app._storage.disk_stats = MagicMock(return_value=fake_disk)
+    app._downloader.download_new_clips = AsyncMock(return_value=[])
+
+    await app._poll_cycle()
+
+    assert app._media_server.extra_status.get("disk") == fake_disk
+
+
+async def test_on_clips_downloaded_updates_disk_stats_in_extra_status(app):
+    """After a successful download batch, extra_status['disk'] must be set."""
+    fake_disk = {
+        "used_mb": 100.0,
+        "free_gb": 5.0,
+        "used_bytes": 0,
+        "free_bytes": 0,
+        "total_bytes": 0,
+        "total_gb": 0.0,
+        "quota_bytes": 0,
+        "quota_gb": 0,
+    }
+    app._storage.disk_stats = MagicMock(return_value=fake_disk)
+
+    clips = [
+        {"id": "1", "camera": "Cam", "path": "/p", "timestamp": "t", "size_bytes": 1}
+    ]
+    await app._on_clips_downloaded(clips)
+
+    assert app._media_server.extra_status.get("disk") == fake_disk
