@@ -3,7 +3,7 @@ FROM ${BUILD_FROM}
 
 # BUILD_ARCH is injected by the HA build system for multi-arch images.
 ARG BUILD_ARCH
-ARG BUILD_VERSION=2.3.0
+ARG BUILD_VERSION=2.4.0
 
 # Install C build tools needed by some Python wheels
 RUN apk add --no-cache gcc musl-dev libffi-dev openssl-dev
@@ -19,20 +19,17 @@ COPY blink_downloader/ /app/blink_downloader/
 RUN pip3 install --no-cache-dir /app \
     && rm -rf /app
 
-# Copy rootfs overlay (ENTRYPOINT wrapper + s6-rc.d service definition)
+# Copy rootfs overlay (s6-rc.d service definition)
 COPY rootfs /
 # Belt-and-suspenders chmod — git already tracks 100755, but some CI/CD
 # pipelines don't preserve git file modes through COPY.
-RUN chmod a+x /run.sh \
-    && chmod a+x /etc/s6-overlay/s6-rc.d/blink-downloader/run \
+RUN chmod a+x /etc/s6-overlay/s6-rc.d/blink-downloader/run \
     && chmod a+x /etc/s6-overlay/s6-rc.d/blink-downloader/finish
 
-# Override the base image's /init ENTRYPOINT with our wrapper.
-# The wrapper clears stale s6 lock files left by in-place container restarts
-# (HA Supervisor container.restart() preserves the writable layer, including
-# /run/service/.s6-svscan/lock).  After cleanup it exec-s /init so s6-overlay
-# takes over as PID 1 and the rest of the startup is completely normal.
-ENTRYPOINT ["/run.sh"]
+# No ENTRYPOINT override — the base image's ENTRYPOINT ["/init"] starts
+# s6-overlay exactly once.  Any override here (including a wrapper that
+# exec-s /init) causes s6-svscan to be started a second time, producing
+# the "another instance already running" crash loop.
 
 LABEL \
     org.opencontainers.image.title="Blink Clip Downloader" \

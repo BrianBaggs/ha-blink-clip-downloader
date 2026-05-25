@@ -1,50 +1,39 @@
 # Changelog
 
-## 2.3.0
+## 2.4.0
 
 ### Bug fixes
 
-- **Definitive fix for `s6-svscan: fatal: another instance of s6-svscan is
-  already running` and `s6-linux-init (child): warning: s6-svscan failed to
-  send a notification byte!`** — Root-cause identified by reading the actual
-  HA Supervisor source code (`supervisor/apps/app.py`).
+- **Fixed `s6-svscan: fatal: another instance of s6-svscan is already running`
+  — for real this time** — The root cause was identified with the help of
+  concrete diagnostic guidance: the previous fix (`ENTRYPOINT ["/run.sh"]`
+  with `exec /init "$@"` inside `run.sh`) was itself **the bug**.
 
-  **Root cause:** The HA Supervisor has two container-restart code paths:
-  - `ContainerState.FAILED` → `stop(remove_container=True)` then fresh `run()`
-    — creates a brand-new container with a clean writable layer.
-  - Any other state (e.g. `UNHEALTHY`) → `container.restart()` — restarts the
-    same container **in place**, preserving its writable layer.
+  The HA base image's `ENTRYPOINT ["/init"]` already starts s6-overlay
+  exactly once.  Our wrapper called `/init` a second time (even via `exec`),
+  which triggered a second s6-svscan — producing the "another instance"
+  crash.  The correct pattern for HA OS add-ons is to **never override
+  ENTRYPOINT and never call `/init` or `s6-svscan` from any script**.
 
-  `/run` is part of the Docker container's writable overlay layer — it is
-  **not** a tmpfs in Docker's default configuration.  When the Supervisor
-  takes the `container.restart()` path, `/run/service/.s6-svscan/lock` from
-  the previous s6-svscan run survives into the restarted container.
-  s6-overlay's preinit (`s6-rmrf /run/service ...`) runs but the write is
-  effectively a no-op because the kernel already released the lock when the
-  previous process died — the file still exists.  The new s6-svscan then
-  calls `lock_exnb()` on the file, gets `EWOULDBLOCK`, and prints
-  `"another instance already running"`.  The container exits, the Supervisor
-  restarts it in-place again, and the cycle repeats.
+  **Changes:**
+  - Removed `ENTRYPOINT ["/run.sh"]` from `Dockerfile` — the base image's
+    own `ENTRYPOINT ["/init"]` is used unchanged.
+  - `rootfs/run.sh` no longer calls `/init`; it is a reference-only file
+    and is not invoked by any startup mechanism.
+  - The `rootfs/etc/s6-overlay/s6-rc.d/blink-downloader/run` script
+    (the actual s6 service entry point) remains `exec python3 -m blink_downloader`
+    with no s6 or init commands.
 
-  **Fix:** `rootfs/run.sh` is now the container `ENTRYPOINT`.  It runs first
-  as PID 1, unconditionally removes `/run/s6`, `/run/service`, and
-  `/run/s6-rc*` (these are always recreated by s6-overlay's own preinit
-  immediately after), then `exec`s the real `/init` so s6-overlay takes over
-  as PID 1 and the startup proceeds normally.  The AppArmor profile already
-  has `rw` on `/run/` so the deletion is permitted.
+- **Fixed maintainer name not appearing in HA add-on repository** —
+  `repository.yaml` at the repo root was still using the placeholder
+  `Your Name <your@email.com>`.  Updated to `Brian Baggs <brianbaggs@hotmail.com>`.
+  Also updated the placeholder GitHub URL in `config.yaml`, `Dockerfile`, and
+  `repository.yaml` from `yourusername` to `brianbaggs`.
 
-  **Other changes included in this release:**
-  - Switched from `rootfs/etc/services.d/` (v2.2.0) to the canonical
-    `rootfs/etc/s6-overlay/s6-rc.d/blink-downloader/` structure
-    (`type`, `run`, `finish`, `dependencies.d/base`) used by all official
-    hassio-addons.
-  - `rootfs/etc/s6-overlay/s6-rc.d/user/contents.d/blink-downloader` empty
-    marker registers the service in the user bundle.  **No `user/type` file**
-    — the base image already ships one; a duplicate causes `s6-rc-compile`
-    to fail.
-  - `finish` script follows the `hassio-addons/app-example` pattern: records
-    the exit code in `/run/s6-linux-init-container-results/exitcode` and
-    calls `exec /run/s6/basedir/bin/halt` on SIGTERM or unexpected crash.
+### Internal
+
+- `rootfs/run.sh` updated with a clear comment explaining that the HA base
+  image manages s6-overlay startup and that no script should call `/init`.
 
 ## 2.2.0
 
