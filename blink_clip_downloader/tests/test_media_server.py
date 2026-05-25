@@ -456,9 +456,7 @@ async def test_auth_status_default_connected(client: TestClient) -> None:
     assert data["state"] == "connected"
 
 
-async def test_auth_status_with_getter(
-    db: ClipDatabase, tmp_path: Path
-) -> None:
+async def test_auth_status_with_getter(db: ClipDatabase, tmp_path: Path) -> None:
     """auth_state_getter return value is forwarded to the client."""
     server = MediaServer(
         db=db,
@@ -482,9 +480,7 @@ async def test_auth_status_with_getter(
 # ---------------------------------------------------------------------------
 
 
-async def test_two_fa_submit_valid_code(
-    db: ClipDatabase, tmp_path: Path
-) -> None:
+async def test_two_fa_submit_valid_code(db: ClipDatabase, tmp_path: Path) -> None:
     received: list[str] = []
     server = MediaServer(
         db=db,

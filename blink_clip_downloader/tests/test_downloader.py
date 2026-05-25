@@ -430,23 +430,18 @@ async def test_connect_proceeds_without_cached_file(dl, tmp_path):
 
 
 async def test_fetch_clip_list_paginates(dl, sample_clip):
-    """_fetch_clip_list fetches page 1 when page 0 is full (_PAGE_SIZE=25 items)."""
+    """_fetch_clip_list fetches page 1 when page 0 is full (_PAGE_SIZE=25 items).
+
+    blinkpy returns the parsed JSON dict directly, not an aiohttp response.
+    """
     full_page = [{**sample_clip, "id": i} for i in range(25)]
-
-    resp_page0 = AsyncMock()
-    resp_page0.status = 200
-    resp_page0.json = AsyncMock(return_value={"media": full_page})
-
-    resp_page1 = AsyncMock()
-    resp_page1.status = 200
-    resp_page1.json = AsyncMock(return_value={"media": []})
 
     dl._blink = MagicMock()
     dl._blink.account_id = 1
 
     with patch(
         "blink_downloader.downloader.blink_api.request_videos",
-        side_effect=[resp_page0, resp_page1],
+        side_effect=[{"media": full_page}, {"media": []}],
     ):
         result = await dl._fetch_clip_list(datetime.now(timezone.utc))
 
@@ -454,14 +449,16 @@ async def test_fetch_clip_list_paginates(dl, sample_clip):
 
 
 async def test_fetch_clip_list_handles_api_error(dl):
-    """Returns an empty list when the Blink API returns a non-200 status."""
-    error_resp = AsyncMock()
-    error_resp.status = 500
+    """Returns an empty list when blinkpy raises an exception for a failed request.
 
+    In blinkpy >= 0.22, non-200 responses raise exceptions (UnauthorizedError,
+    ClientConnectionError, BlinkBadResponse) rather than returning an error
+    response object with a .status attribute.
+    """
     dl._blink = MagicMock()
     with patch(
         "blink_downloader.downloader.blink_api.request_videos",
-        return_value=error_resp,
+        side_effect=Exception("HTTP 500"),
     ):
         result = await dl._fetch_clip_list(datetime.now(timezone.utc))
 

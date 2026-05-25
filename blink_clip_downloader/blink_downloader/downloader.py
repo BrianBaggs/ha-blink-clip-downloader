@@ -173,23 +173,34 @@ class BlinkDownloader:
     # ------------------------------------------------------------------
 
     async def _fetch_clip_list(self, since: datetime) -> list[dict[str, Any]]:
-        """Retrieve the paginated clip list from Blink."""
+        """Retrieve the paginated clip list from Blink.
+
+        blinkpy >= 0.22 returns the parsed JSON dict directly from
+        request_videos() (via auth.query → validate_response with
+        json_resp=True).  Non-200 responses raise exceptions rather than
+        returning an error response object.
+        """
         clips: list[dict[str, Any]] = []
         since_epoch = since.timestamp()
         page = 0
 
         while True:
-            response = await blink_api.request_videos(
-                self._blink, time=since_epoch, page=page
-            )
-            if response is None or response.status != 200:
+            try:
+                data = await blink_api.request_videos(
+                    self._blink, time=since_epoch, page=page
+                )
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.warning("request_videos failed (page %d): %s", page, exc)
+                break
+
+            if not isinstance(data, dict):
                 _LOGGER.warning(
-                    "request_videos returned status %s",
-                    getattr(response, "status", "None"),
+                    "request_videos returned unexpected type %s; stopping pagination",
+                    type(data).__name__,
                 )
                 break
-            data = await response.json()
-            media: list[dict] = data.get("media", [])
+
+            media: list[dict] = data.get("media") or []
             if not media:
                 break
             clips.extend(media)

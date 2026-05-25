@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.5.1
+
+### Bug fixes
+
+- **Fixed `AttributeError: 'dict' object has no attribute 'status'` — clips not
+  downloading** — Our `_fetch_clip_list` was treating the return value of
+  `blinkpy.api.request_videos()` as an aiohttp response object (checking
+  `.status` and calling `.json()`).  In blinkpy ≥ 0.22 the library returns
+  the **parsed JSON dict directly** (via `auth.query → validate_response` with
+  `json_resp=True`).  Non-200 responses raise exceptions rather than returning
+  an error response object.
+
+  **Changes in `downloader.py`:**
+  - Removed `response.status` and `await response.json()` calls from
+    `_fetch_clip_list`.
+  - Now treats the `request_videos()` return value as a dict and reads
+    `data.get("media") or []` directly.
+  - Wrapped the `request_videos()` call in a `try/except` so any blinkpy
+    exception (`UnauthorizedError`, `BlinkBadResponse`, etc.) is caught,
+    logged, and results in an empty list rather than an unhandled crash.
+  - Added a `isinstance(data, dict)` guard for unexpected return types.
+
+  **Tests updated** to mock `request_videos` returning dicts (not mock
+  response objects), and the error-path test now uses `side_effect=Exception`
+  to reflect how blinkpy actually signals failures.
+
 ## 2.5.0
 
 ### Bug fixes
