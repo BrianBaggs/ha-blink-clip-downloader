@@ -64,11 +64,40 @@ _HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/video.js@8.10.0/dist/video-js.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/video.js@8.10.0/dist/video.min.js"></script>
 <style>
+/* Light theme (default – matches HA's default light UI) */
 :root{
+  --bg:#f3f4f6;--surface:#ffffff;--card:#f9fafb;--card2:#f0f2f5;
+  --border:#e5e7eb;--accent:#2563eb;--accent2:#1d4ed8;--success:#16a34a;
+  --danger:#dc2626;--warn:#d97706;--text:#111827;--muted:#6b7280;
+  --starred:#f59e0b;--radius:8px;--nav-h:56px;
+  --btn-text:#ffffff;--badge-ok-bg:#dcfce7;--badge-err-bg:#fee2e2;
+  --tag-bg:#dbeafe;--tag-text:#1d4ed8;--code-color:#1e40af
+}
+/* Dark theme – activates when OS/browser prefers dark (matches HA dark theme) */
+@media(prefers-color-scheme:dark){:root{
   --bg:#0d1117;--surface:#161b22;--card:#1c2128;--card2:#21262d;
   --border:#30363d;--accent:#58a6ff;--accent2:#1f6feb;--success:#3fb950;
   --danger:#f85149;--warn:#d29922;--text:#c9d1d9;--muted:#8b949e;
-  --starred:#e3b341;--radius:8px;--nav-h:56px
+  --starred:#e3b341;
+  --btn-text:#0d1117;--badge-ok-bg:#0d2818;--badge-err-bg:#2d1313;
+  --tag-bg:#1a3055;--tag-text:#79b8ff;--code-color:#a9d1f7
+}}
+/* Manual override classes (toggled by the ☀/🌙 button, stored in localStorage) */
+body.dark{
+  --bg:#0d1117;--surface:#161b22;--card:#1c2128;--card2:#21262d;
+  --border:#30363d;--accent:#58a6ff;--accent2:#1f6feb;--success:#3fb950;
+  --danger:#f85149;--warn:#d29922;--text:#c9d1d9;--muted:#8b949e;
+  --starred:#e3b341;
+  --btn-text:#0d1117;--badge-ok-bg:#0d2818;--badge-err-bg:#2d1313;
+  --tag-bg:#1a3055;--tag-text:#79b8ff;--code-color:#a9d1f7
+}
+body.light{
+  --bg:#f3f4f6;--surface:#ffffff;--card:#f9fafb;--card2:#f0f2f5;
+  --border:#e5e7eb;--accent:#2563eb;--accent2:#1d4ed8;--success:#16a34a;
+  --danger:#dc2626;--warn:#d97706;--text:#111827;--muted:#6b7280;
+  --starred:#f59e0b;
+  --btn-text:#ffffff;--badge-ok-bg:#dcfce7;--badge-err-bg:#fee2e2;
+  --tag-bg:#dbeafe;--tag-text:#1d4ed8;--code-color:#1e40af
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
@@ -94,7 +123,7 @@ code{background:var(--card2);border:1px solid var(--border);border-radius:4px;
 .nav-tab.active{color:var(--accent);background:var(--card2)}
 .nav-actions{display:flex;align-items:center;gap:.45rem;margin-left:auto}
 
-.btn{background:var(--accent);color:#0d1117;border:none;border-radius:var(--radius);
+.btn{background:var(--accent);color:var(--btn-text);border:none;border-radius:var(--radius);
      padding:.4rem .9rem;font-size:.85rem;font-weight:600;cursor:pointer;
      transition:.15s;white-space:nowrap;display:inline-flex;align-items:center;gap:.3rem}
 .btn:hover:not(:disabled){filter:brightness(1.12)}
@@ -108,8 +137,8 @@ code{background:var(--card2);border:1px solid var(--border);border-radius:4px;
 
 .badge{display:inline-block;background:var(--border);border-radius:9px;
        padding:.1rem .5rem;font-size:.72rem;color:var(--muted)}
-.badge.ok{background:#0d2818;color:var(--success)}
-.badge.err{background:#2d1313;color:var(--danger)}
+.badge.ok{background:var(--badge-ok-bg);color:var(--success)}
+.badge.err{background:var(--badge-err-bg);color:var(--danger)}
 
 /* ── Pages ────────────────────────────────────────────── */
 .page{flex:1;overflow:hidden;display:none}
@@ -178,7 +207,7 @@ code{background:var(--card2);border:1px solid var(--border);border-radius:4px;
 .clip-time{font-size:.71rem;color:var(--muted);margin:.12rem 0}
 .clip-meta{font-size:.69rem;color:var(--muted);display:flex;gap:.35rem;flex-wrap:wrap}
 .src-pill{background:var(--card2);border-radius:3px;padding:.04rem .3rem}
-.tag-pill{background:#1a3055;color:#79b8ff;border-radius:3px;padding:.04rem .3rem}
+.tag-pill{background:var(--tag-bg);color:var(--tag-text);border-radius:3px;padding:.04rem .3rem}
 
 /* ── Bulk bar ─────────────────────────────────────────── */
 .bulk-bar{background:var(--accent2);color:#fff;padding:.45rem 1rem;
@@ -242,7 +271,7 @@ code{background:var(--card2);border:1px solid var(--border);border-radius:4px;
            font-size:.82rem;width:165px}
 .tag-input:focus{outline:none;border-color:var(--accent)}
 .tag-list{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.35rem}
-.tag-item{background:#1a3055;color:#79b8ff;border-radius:4px;
+.tag-item{background:var(--tag-bg);color:var(--tag-text);border-radius:4px;
           padding:.16rem .42rem;font-size:.74rem;display:flex;align-items:center;gap:.25rem}
 .tag-item .rm{cursor:pointer;opacity:.6;line-height:1}
 .tag-item .rm:hover{opacity:1}
@@ -292,7 +321,7 @@ code{background:var(--card2);border:1px solid var(--border);border-radius:4px;
 .auto-content ul{padding-left:1.2rem;margin:.35rem 0}
 .code-block{background:var(--card);border:1px solid var(--border);
             border-radius:var(--radius);padding:.9rem 1rem;font-family:monospace;
-            font-size:.79rem;color:#a9d1f7;line-height:1.5;overflow-x:auto;
+            font-size:.79rem;color:var(--code-color);line-height:1.5;overflow-x:auto;
             white-space:pre;position:relative;margin:.4rem 0 1.1rem}
 .copy-btn{position:absolute;top:.4rem;right:.4rem;background:var(--card2);
           border:1px solid var(--border);color:var(--muted);
@@ -330,6 +359,7 @@ code{background:var(--card2);border:1px solid var(--border);border-radius:4px;
     <button class="nav-tab" data-tab="automations">⚡ <span>Automations</span></button>
   </div>
   <div class="nav-actions">
+    <button class="btn icon ghost" id="theme-btn" title="Toggle dark/light theme">🌙</button>
     <button class="btn icon ghost" id="help-btn" title="Keyboard shortcuts (?)">?</button>
     <button class="btn icon ghost" id="notif-btn" title="Enable notifications">🔕</button>
     <span id="conn-badge" class="badge">●</span>
@@ -599,6 +629,26 @@ action:
 'use strict';
 // Ingress root prefix injected by server (empty for direct access, /api/hassio_ingress/TOKEN for ingress)
 const _R = '__HAROOT__';
+
+// ── Theme (light default; follows OS/browser prefers-color-scheme; manual override stored in localStorage) ─
+(function(){
+  const t = localStorage.getItem('blink_theme');
+  if (t === 'dark') document.body.classList.add('dark');
+  else if (t === 'light') document.body.classList.add('light');
+  // If nothing stored, CSS media query handles it automatically.
+})();
+function _isDark() {
+  if (document.body.classList.contains('dark')) return true;
+  if (document.body.classList.contains('light')) return false;
+  return window.matchMedia('(prefers-color-scheme:dark)').matches;
+}
+function updateThemeBtn() {
+  const btn = $('theme-btn');
+  if (!btn) return;
+  const dark = _isDark();
+  btn.textContent = dark ? '☀' : '🌙';
+  btn.title = dark ? 'Switch to light theme' : 'Switch to dark theme';
+}
 // ── State ──────────────────────────────────────────────────────────────────
 let currentCamera = 'all', currentPage = 0, currentClipId = null, currentTags = [];
 let selectMode = false, selectedIds = new Set();
@@ -817,6 +867,18 @@ $('notif-btn').addEventListener('click', async () => {
   updateNotifBtn();
 });
 updateNotifBtn();
+
+// ── Theme toggle ───────────────────────────────────────────────────────────
+$('theme-btn').addEventListener('click', () => {
+  const wasDark = _isDark();
+  document.body.classList.remove('dark', 'light');
+  document.body.classList.add(wasDark ? 'light' : 'dark');
+  localStorage.setItem('blink_theme', wasDark ? 'light' : 'dark');
+  updateThemeBtn();
+});
+// Sync button icon when OS preference changes (e.g. system-wide dark mode toggle).
+window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change', updateThemeBtn);
+updateThemeBtn();
 
 // ── Clip card ──────────────────────────────────────────────────────────────
 function buildCard(c) {

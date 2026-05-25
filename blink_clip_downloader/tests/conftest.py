@@ -66,7 +66,7 @@ def sample_clip() -> dict:
     return {
         "id": 99001,
         "device_name": "Front Door",
-        "address": "/api/v1/accounts/1/networks/10/cameras/100/clip/99001.mp4",
+        "media": "/api/v1/accounts/1/networks/10/cameras/100/clip/99001.mp4",
         "thumbnail": "/api/v1/accounts/1/networks/10/cameras/100/thumbnail/99001",
         "created_at": "2024-06-01T08:30:00+00:00",
         "updated_at": "2024-06-01T08:30:05+00:00",

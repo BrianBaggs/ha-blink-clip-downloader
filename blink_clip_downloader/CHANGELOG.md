@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.5.2
+
+### Bug fixes
+
+- **Fixed "Clip has no address, skipping" — no clips downloading** — The Blink
+  API returns the video URL in a field named `"media"`, not `"address"`.  Our
+  `_download_clip` was calling `clip.get("address", "")` which always returned
+  an empty string, causing every clip to be skipped with the "has no address"
+  warning.
+
+  **Changes in `downloader.py`:**
+  - `clip.get("address", "")` → `clip.get("media", "")` (the correct Blink API
+    field name, as used in blinkpy's own `_parse_downloaded_items`).
+  - Added a `deleted` filter in `_apply_filters`: clips where
+    `clip.get("deleted", False)` is truthy are now silently skipped before the
+    download stage, matching blinkpy's own behaviour.
+
+  **Test fixture updated** (`conftest.py`): `sample_clip` now uses `"media"`
+  instead of `"address"` to reflect the real API response shape.
+
+### Improvements
+
+- **Web UI now follows the HA theme** — The Blink Clips panel defaults to a
+  **light theme** that matches Home Assistant's default UI.  The theme
+  automatically switches to dark when the operating system or browser prefers
+  dark mode (`prefers-color-scheme: dark`) — the same signal HA uses for its
+  own default theme.
+
+  A **☀ / 🌙 toggle button** in the top-right of the nav bar lets users
+  override the automatic choice.  The preference is stored in `localStorage`
+  and persists across page loads.
+
+  All previously hardcoded dark-mode colours (`#0d2818`, `#1a3055`, `#a9d1f7`,
+  etc.) are now CSS custom properties (`--badge-ok-bg`, `--tag-bg`,
+  `--code-color`, etc.) so both themes render correctly.
+
 ## 2.5.1
 
 ### Bug fixes

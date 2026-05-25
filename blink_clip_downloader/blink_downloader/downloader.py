@@ -213,7 +213,10 @@ class BlinkDownloader:
         return clips
 
     def _apply_filters(self, clips: list[dict]) -> list[dict]:
-        """Apply camera whitelist, motion-only, and time-window filters."""
+        """Apply camera whitelist, motion-only, time-window, and deleted filters."""
+        # Always skip clips marked as deleted by Blink.
+        clips = [c for c in clips if not c.get("deleted", False)]
+
         if self._config.camera_filter:
             allowed = {c.lower() for c in self._config.camera_filter}
             clips = [c for c in clips if c.get("device_name", "").lower() in allowed]
@@ -261,7 +264,8 @@ class BlinkDownloader:
         async with semaphore:
             clip_id = str(clip.get("id", ""))
             camera_name = clip.get("device_name", "unknown")
-            url = clip.get("address", "")
+            # Blink API returns the video URL in the "media" field.
+            url = clip.get("media", "")
             created_str = clip.get("created_at", "")
 
             try:
