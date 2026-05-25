@@ -1,5 +1,45 @@
 # Changelog
 
+## 2.2.1
+
+### Bug fixes
+
+- **Definitive fix for `s6-svscan: fatal: another instance of s6-svscan is
+  already running` and `s6-linux-init (child): warning: s6-svscan failed to
+  send a notification byte!`** — Root-cause analysis against the actual
+  `hassio-addons/app-example` reference implementation revealed that the
+  correct approach for HA OS add-ons is **`/etc/s6-overlay/s6-rc.d/`**, not
+  the legacy `/etc/services.d/` directory used in v2.2.0.
+
+  Although the HA base image technically supports `services.d` via an
+  s6-overlay v3 backward-compat shim, no official add-on uses it and it is
+  known to interfere with the base image's stage-2 s6-rc startup sequence in
+  ways that produce the svscan errors seen in v2.2.0.
+
+  **Changes:**
+  1. **Removed** `rootfs/etc/services.d/` entirely.
+  2. **Added** `rootfs/etc/s6-overlay/s6-rc.d/blink-downloader/` with the
+     canonical longrun service structure:
+     - `type` → `longrun`
+     - `run` → `exec python3 -m blink_downloader`
+     - `finish` → HA-standard finish script (halts container on SIGTERM or
+       crash so the Supervisor restart cycle is clean)
+     - `dependencies.d/base` → empty marker (service depends on the S6 base
+       bundle)
+  3. **Added** `rootfs/etc/s6-overlay/s6-rc.d/user/contents.d/blink-downloader`
+     — empty marker that registers the service in the user bundle.
+     **No `user/type` file is included** — the base image ships one already;
+     a duplicate causes `s6-rc-compile` to fail and is the root cause of the
+     "another instance" log noise seen in earlier versions.
+  4. **Updated** `Dockerfile` `chmod` lines to target the new paths.
+
+- **Improved `finish` script** — now follows the `hassio-addons/app-example`
+  pattern exactly: writes the correct exit code to
+  `/run/s6-linux-init-container-results/exitcode` and calls
+  `exec /run/s6/basedir/bin/halt` on SIGTERM or unexpected crash, giving the
+  HA Supervisor a clean restart target instead of spinning in a service-level
+  loop inside the container.
+
 ## 2.2.0
 
 ### Bug fixes

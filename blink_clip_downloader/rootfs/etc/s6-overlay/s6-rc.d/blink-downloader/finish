@@ -1,0 +1,46 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Called by S6 whenever the run script exits.
+#
+# $1 = exit code of run script  (256 = killed by a signal)
+# $2 = signal number that killed it (when $1 == 256)
+#
+# Pattern follows the official hassio-addons/app-example finish script:
+#   • Signal kill (exit 256, signal 15 = SIGTERM) → halt the container so the
+#     HA Supervisor's stop/restart cycle is clean.
+#   • Unexpected crash (non-zero exit) → write the exit code and halt; the
+#     Supervisor will restart the add-on automatically.
+#   • Clean exit (code 0) → log and let S6 restart the service within the
+#     same container (handles intentional self-restarts).
+# ==============================================================================
+declare exit_code_container
+readonly exit_code_container=$(</run/s6-linux-init-container-results/exitcode)
+readonly exit_code_service="${1}"
+readonly exit_code_signal="${2}"
+
+bashio::log.info \
+    "Blink Clip Downloader exited (code ${exit_code_service}, signal ${exit_code_signal})"
+
+# ── Killed by a signal ────────────────────────────────────────────────────────
+if [[ "${exit_code_service}" -eq 256 ]]; then
+    if [[ "${exit_code_container}" -eq 0 ]]; then
+        echo $((128 + exit_code_signal)) > /run/s6-linux-init-container-results/exitcode
+    fi
+    # SIGTERM (15) means Docker / HA Supervisor is stopping the container.
+    [[ "${exit_code_signal}" -eq 15 ]] && exec /run/s6/basedir/bin/halt
+
+# ── Unexpected crash ──────────────────────────────────────────────────────────
+elif [[ "${exit_code_service}" -ne 0 ]]; then
+    if [[ "${exit_code_container}" -eq 0 ]]; then
+        echo "${exit_code_service}" > /run/s6-linux-init-container-results/exitcode
+    fi
+    bashio::log.warning \
+        "Blink Clip Downloader crashed (code ${exit_code_service}) — halting add-on for Supervisor restart."
+    exec /run/s6/basedir/bin/halt
+fi
+
+# ── Clean exit (code 0) ───────────────────────────────────────────────────────
+# The Python app exited cleanly (e.g. handled SIGTERM via asyncio signal
+# handler and returned from run()).  S6 will restart the service.
+bashio::log.info "Blink Clip Downloader restarting…"
