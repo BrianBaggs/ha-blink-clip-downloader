@@ -1,0 +1,4 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+set -e
+exec python3 -m blink_downloader

@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.5.0
+
+### Bug fixes
+
+- **Fixed `s6-svscan: fatal: another instance of s6-svscan is already running`
+  — definitive fix** — Root cause was the AppArmor profile missing the `k`
+  (file-lock) permission flag on `/run/`.  Without `k`, AppArmor silently
+  blocks `fcntl(F_SETLK)` calls.  s6-svscan uses `fcntl`-based locking to
+  acquire an exclusive lock on `/run/service/.s6-svscan/lock` at startup;
+  when that call is blocked it reports "another instance already running"
+  even when no competing process exists.  This was the true root cause in
+  every prior version — the service-structure and ENTRYPOINT changes in
+  2.2.x–2.4.0 were all red herrings.
+
+  **Changes modelled on the official `home-assistant/apps-example` repo:**
+
+  1. **`apparmor.txt` completely rewritten** — replaced the hand-rolled
+     per-path rules with the canonical HA add-on AppArmor pattern:
+     - `file,` (blanket file access — supersedes all individual `r`/`w`/`x`
+       rules and implicitly includes the `k` lock flag)
+     - `/run/{,**} rwk,` — explicit `rwk` so `fcntl(F_SETLK)` is permitted
+       on every path under `/run/`, which is exactly what s6-svscan needs.
+
+  2. **Switched from `s6-rc.d/` to `services.d/`** — the official example
+     uses the S6-overlay v3 *legacy services* path
+     (`/etc/services.d/<name>/run` + `finish`), not `s6-rc.d/`.  Removed
+     `rootfs/etc/s6-overlay/s6-rc.d/` entirely; created
+     `rootfs/etc/services.d/blink-downloader/run` and `finish`.
+
+  3. **Service script shebangs corrected** — `run` uses
+     `#!/usr/bin/with-contenv bashio`; `finish` uses `#!/usr/bin/env bashio`,
+     matching the official example exactly.
+
+  4. **`Dockerfile` chmod targets updated** — now points at
+     `/etc/services.d/blink-downloader/{run,finish}`.
+
 ## 2.4.0
 
 ### Bug fixes

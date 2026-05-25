@@ -3,7 +3,7 @@ FROM ${BUILD_FROM}
 
 # BUILD_ARCH is injected by the HA build system for multi-arch images.
 ARG BUILD_ARCH
-ARG BUILD_VERSION=2.4.0
+ARG BUILD_VERSION=2.5.0
 
 # Install C build tools needed by some Python wheels
 RUN apk add --no-cache gcc musl-dev libffi-dev openssl-dev
@@ -19,12 +19,12 @@ COPY blink_downloader/ /app/blink_downloader/
 RUN pip3 install --no-cache-dir /app \
     && rm -rf /app
 
-# Copy rootfs overlay (s6-rc.d service definition)
+# Copy rootfs overlay (services.d service definition)
 COPY rootfs /
 # Belt-and-suspenders chmod — git already tracks 100755, but some CI/CD
 # pipelines don't preserve git file modes through COPY.
-RUN chmod a+x /etc/s6-overlay/s6-rc.d/blink-downloader/run \
-    && chmod a+x /etc/s6-overlay/s6-rc.d/blink-downloader/finish
+RUN chmod a+x /etc/services.d/blink-downloader/run \
+    && chmod a+x /etc/services.d/blink-downloader/finish
 
 # No ENTRYPOINT override — the base image's ENTRYPOINT ["/init"] starts
 # s6-overlay exactly once.  Any override here (including a wrapper that
