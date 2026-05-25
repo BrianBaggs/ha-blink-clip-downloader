@@ -1,0 +1,15 @@
+#!/command/with-contenv bashio
+# ==============================================================================
+# Blink Clip Downloader – S6-overlay services.d entry point.
+#
+# Using the legacy services.d format (fully supported by S6v3 via its backward-
+# compatibility layer) avoids the user-bundle s6-svscan conflict that occurs
+# with the s6-rc.d/user/contents.d approach on some HA base image versions.
+#
+# with-contenv loads the HA supervisor environment (SUPERVISOR_TOKEN, etc.)
+# before this script runs.
+# ==============================================================================
+# shellcheck shell=bash
+set -e
+
+exec python3 -m blink_downloader

@@ -1,5 +1,51 @@
 # Changelog
 
+## 2.2.0
+
+### Bug fixes
+
+- **Fixed `s6-svscan: fatal: another instance of s6-svscan is already running`**
+  — The `s6-rc.d/user/contents.d` bundle registration approach used in v2.1.x
+  conflicts with the supervision tree the HA base image already owns.  Switched
+  to the **`/etc/services.d/`** legacy service format, which S6-overlay v3
+  supports via its backward-compatibility layer and does not touch the user
+  bundle or start a second svscan.  Also added a `finish` script to the service
+  directory that prevents rapid crash-restart loops (10 s back-off on unexpected
+  exits).
+
+- **Fixed "App not running — Start?" ingress loop** — The Python process was
+  calling `sys.exit(1)` on configuration errors and returning immediately on
+  Blink authentication failures.  Both killed the aiohttp web server, leaving
+  port 8099 silent and causing HA ingress to report the add-on as not running.
+  Three code-path changes fix this:
+
+  1. **`__main__.py`** — removed `sys.exit(1)`.  On any `load_config()` error
+     the process now creates a minimal `AppConfig` with `startup_error` set and
+     continues into the normal app lifecycle.
+
+  2. **`app.py` — startup-error mode** — when `startup_error` is set the web
+     server starts as normal, the auth state is set to `"error"` (visible on
+     the Status tab), and the process sleeps in a loop until SIGTERM rather than
+     exiting.  HA ingress sees port 8099 up and the sidebar panel loads.
+
+  3. **`app.py` — `_connect_with_retry()`** — replaces the bare `try/except`
+     that returned on auth failure.  On `TwoFARequired` or any other Blink
+     exception the add-on sends the HA notification, logs the error, waits
+     `_reconnect_interval` seconds (default 60), and retries indefinitely.
+     The process never exits between retries; the web server stays up the whole
+     time.  SIGTERM is responded to promptly because the wait loop checks
+     `_running` every second.
+
+### Improvements
+
+- Added `startup_error: str = ""` field to `AppConfig`; set by `__main__` when
+  `load_config()` raises, consumed by `app.run()` to enter web-only mode.
+- `_reconnect_interval` and `_startup_poll_interval` instance attributes on
+  `BlinkClipDownloaderApp` (default 60 s and 1 s respectively) can be overridden
+  in tests to keep the suite fast without patching `asyncio.sleep`.
+- `services.d` `finish` script: logs exit code and adds a 10 s sleep before S6
+  restarts the service on unexpected crashes.
+
 ## 2.1.2
 
 ### Bug fixes

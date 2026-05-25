@@ -7,7 +7,7 @@ import logging
 import sys
 
 from .app import BlinkClipDownloaderApp
-from .config import load_config
+from .config import AppConfig, load_config
 
 
 def _setup_logging(level: str) -> None:
@@ -26,16 +26,30 @@ def _setup_logging(level: str) -> None:
 
 
 def main() -> None:
+    # Bootstrap minimal logging so any startup error is visible in the HA log.
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        level=logging.INFO,
+        stream=sys.stdout,
+        force=True,
+    )
+    _logger = logging.getLogger(__name__)
+
+    config: AppConfig
     try:
         config = load_config()
-    except (FileNotFoundError, ValueError) as exc:
-        logging.basicConfig(level=logging.ERROR)
-        logging.getLogger(__name__).error("Configuration error: %s", exc)
-        sys.exit(1)
+        _setup_logging(config.log_level)
+    except Exception as exc:  # noqa: BLE001
+        # Do NOT call sys.exit() — the process must stay alive so the web
+        # server can start and HA ingress remains reachable.  The app will run
+        # in web-only mode and display the error on the Status tab.
+        _logger.error(
+            "Configuration error — starting in web-only mode: %s", exc
+        )
+        config = AppConfig(username="", password="", startup_error=str(exc))
 
-    _setup_logging(config.log_level)
     app = BlinkClipDownloaderApp(config)
-
     try:
         asyncio.run(app.run())
     except KeyboardInterrupt:

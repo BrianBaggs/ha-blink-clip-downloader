@@ -1,0 +1,19 @@
+#!/command/with-contenv bashio
+# ==============================================================================
+# Called by S6 when the run script exits.
+# $1 = exit code of the run script (256 = killed by signal, e.g. SIGTERM).
+# $2 = signal number that killed it (if applicable).
+#
+# The Python app is designed to run indefinitely and handle SIGTERM cleanly.
+# If it exits unexpectedly (non-zero, non-signal) we add a 10-second back-off
+# before S6 restarts it, preventing rapid crash loops.
+# ==============================================================================
+# shellcheck shell=bash
+declare exit_code="${1}"
+
+if [ "${exit_code}" -eq 0 ] || [ "${exit_code}" -eq 256 ]; then
+    bashio::log.info "Blink Clip Downloader stopped cleanly (code ${exit_code})."
+else
+    bashio::log.warning "Blink Clip Downloader exited unexpectedly (code ${exit_code}) — waiting 10 s before restart."
+    sleep 10
+fi

@@ -173,3 +173,23 @@ def test_post_motion_delay_clamped_to_max():
 def test_post_motion_delay_custom():
     cfg = _parse_config({"username": "u", "password": "p", "post_motion_delay": 60})
     assert cfg.post_motion_delay == 60
+
+
+# ---------------------------------------------------------------------------
+# startup_error field
+# ---------------------------------------------------------------------------
+
+
+def test_startup_error_defaults_to_empty_string():
+    """startup_error is empty on a successfully parsed config."""
+    cfg = _parse_config({"username": "u", "password": "p"})
+    assert cfg.startup_error == ""
+
+
+def test_appconfig_startup_error_can_be_set_directly():
+    """AppConfig can be constructed with startup_error for web-only mode."""
+    from blink_downloader.config import AppConfig
+
+    cfg = AppConfig(username="", password="", startup_error="options.json not found")
+    assert cfg.startup_error == "options.json not found"
+    assert cfg.username == ""

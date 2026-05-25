@@ -90,17 +90,63 @@ class BlinkClipDownloaderApp:
         # Fast-poll state: epoch time until which we poll at fast_poll_interval.
         self._fast_poll_until: float = 0.0
         self._bg_tasks: list[asyncio.Task] = []
+        # Seconds between Blink auth retry attempts (override to 0 in unit tests).
+        self._reconnect_interval: int = 60
+        # Seconds between checks in startup-error waiting loop (override in tests).
+        self._startup_poll_interval: float = 1.0
 
     # ------------------------------------------------------------------
     # Entry point
     # ------------------------------------------------------------------
 
     async def run(self) -> None:
-        """Start the main polling loop."""
+        """Start the main polling loop.
+
+        The web server starts first so HA ingress is always reachable —
+        even when the add-on has a configuration error or Blink auth fails.
+        The process never calls sys.exit(); it stays alive and retries.
+        """
         self._running = True
         self._storage.ensure_directory()
 
         _LOGGER.info("Blink Clip Downloader starting up")
+
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, self._handle_shutdown)
+
+        # Init database.
+        if self._config.enable_library_db:
+            await self._db.init()
+
+        # ── Web server FIRST ─────────────────────────────────────────────────
+        # Must start before any blocking auth call so HA ingress always finds
+        # port 8099 listening (avoids the "App not running, Start?" loop).
+        if self._config.enable_media_server:
+            self._bg_tasks.append(
+                asyncio.create_task(self._media_server.start(), name="media_server")
+            )
+            # Yield once so the server task begins binding before we continue.
+            await asyncio.sleep(0)
+
+        # ── Configuration error mode ─────────────────────────────────────────
+        # options.json was missing or invalid.  Show the error on the Status
+        # tab and keep the web server alive so the user can read it without SSH.
+        if self._config.startup_error:
+            _LOGGER.error(
+                "Running in web-only mode — fix the add-on configuration and "
+                "restart.  Error: %s",
+                self._config.startup_error,
+            )
+            self._downloader.auth_state = "error"
+            self._downloader.auth_message = (
+                f"Configuration error: {self._config.startup_error}"
+            )
+            while self._running:
+                await asyncio.sleep(self._startup_poll_interval)
+            await self._shutdown()
+            return
+
         _LOGGER.info("  Download path   : %s", self._config.download_path)
         _LOGGER.info("  Poll interval   : %d s", self._config.poll_interval)
         _LOGGER.info("  Retention       : %d days", self._config.retention_days)
@@ -114,32 +160,12 @@ class BlinkClipDownloaderApp:
             "  HA event watch  : %s", "on" if self._config.watch_ha_events else "off"
         )
 
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, self._handle_shutdown)
-
-        # Init database.
-        if self._config.enable_library_db:
-            await self._db.init()
-
-        # Start the media server BEFORE connecting to Blink so the 2FA UI is
-        # available when Blink requires a verification code.
-        if self._config.enable_media_server:
-            self._bg_tasks.append(
-                asyncio.create_task(self._media_server.start(), name="media_server")
-            )
-            # Yield once so the server task can begin binding before we block on auth.
-            await asyncio.sleep(0)
-
-        # Connect to Blink.
-        try:
-            await self._downloader.connect()
-        except TwoFARequired as exc:
-            _LOGGER.error("%s", exc)
-            await self._notifier.notify(str(exc), title="Blink 2FA Required")
-            return
-        except Exception as exc:  # noqa: BLE001
-            _LOGGER.error("Failed to connect to Blink: %s", exc, exc_info=True)
+        # ── Blink authentication with auto-retry ─────────────────────────────
+        # Never exits on auth failure — retries every _reconnect_interval seconds
+        # so a transient network blip or expired token heals itself.
+        if not await self._connect_with_retry():
+            # _running was cleared by SIGTERM while we were between retries.
+            await self._shutdown()
             return
 
         self._tracker.increment_session_count()
@@ -171,6 +197,57 @@ class BlinkClipDownloaderApp:
                 await self._wait_with_trigger_check()
 
         await self._shutdown()
+
+    # ------------------------------------------------------------------
+    # Blink connection with auto-retry
+    # ------------------------------------------------------------------
+
+    async def _connect_with_retry(self) -> bool:
+        """Attempt Blink authentication, retrying on transient failures.
+
+        Returns True when connected.  Returns False only when *_running* is
+        cleared (SIGTERM / SIGINT) while waiting between attempts — the caller
+        should then proceed to shutdown.
+
+        The method intentionally never raises; the process stays alive (web
+        server keeps running) between retries so HA ingress stays green.
+        """
+        attempt = 0
+        while self._running:
+            attempt += 1
+            try:
+                await self._downloader.connect()
+                if attempt > 1:
+                    _LOGGER.info(
+                        "Connected to Blink after %d attempt(s)", attempt
+                    )
+                return True
+            except TwoFARequired as exc:
+                _LOGGER.error(
+                    "Blink 2FA timed out (attempt %d) — "
+                    "open the Blink Clips panel to enter the code, "
+                    "then the add-on will retry in %d s.",
+                    attempt,
+                    self._reconnect_interval,
+                )
+                await self._notifier.notify(str(exc), title="Blink 2FA Required")
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.error(
+                    "Failed to connect to Blink (attempt %d): %s — "
+                    "retrying in %d s",
+                    attempt,
+                    exc,
+                    self._reconnect_interval,
+                )
+
+            # Interruptible wait: check _running every second so SIGTERM is
+            # responded to promptly even during a long retry interval.
+            for _ in range(self._reconnect_interval):
+                if not self._running:
+                    return False
+                await asyncio.sleep(1)
+
+        return False
 
     # ------------------------------------------------------------------
     # Poll cycle

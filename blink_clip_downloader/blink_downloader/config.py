@@ -87,6 +87,9 @@ class AppConfig:
         default_factory=lambda: os.environ.get("SUPERVISOR_TOKEN", "")
     )
     two_fa_timeout: float = 600.0
+    # Set to a non-empty string when load_config() fails; the app starts the
+    # web server in error-display mode rather than attempting Blink auth.
+    startup_error: str = ""
 
 
 def load_config(options_path: Path = OPTIONS_FILE) -> AppConfig:

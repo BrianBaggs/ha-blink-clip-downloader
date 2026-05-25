@@ -34,6 +34,9 @@ def app(base_config):
     a._storage.apply_retention_policy = MagicMock(return_value=0)
     a._storage.is_over_quota = MagicMock(return_value=False)
     a._storage.disk_stats = MagicMock(return_value={"used_mb": 1.0, "free_gb": 99.0})
+    # _shutdown() always runs at the end of run(); mock save() so it doesn't
+    # try to write to /data/downloaded_clips.json in the test environment.
+    a._tracker.save = MagicMock()
     return a
 
 
@@ -229,12 +232,25 @@ async def test_shutdown_disconnects_and_saves_tracker(app):
 
 
 # ---------------------------------------------------------------------------
-# run() – 2FA failure path
+# run() – 2FA failure path: retries, never exits
 # ---------------------------------------------------------------------------
 
 
-async def test_run_2fa_required_sends_notification_and_returns(app):
-    app._downloader.connect = AsyncMock(side_effect=TwoFARequired("needs code"))
+async def test_run_2fa_required_sends_notification_and_retries(app):
+    """2FA timeout sends an HA notification; app stays alive and retries."""
+    app._reconnect_interval = 0  # no sleep between retries in tests
+    attempt = 0
+
+    async def _connect():
+        nonlocal attempt
+        attempt += 1
+        if attempt == 1:
+            raise TwoFARequired("needs code")
+        # Second attempt: stop so the test finishes
+        app._running = False
+        raise RuntimeError("test stop")
+
+    app._downloader.connect = _connect
     app._storage.ensure_directory = MagicMock()
 
     await app.run()
@@ -242,21 +258,148 @@ async def test_run_2fa_required_sends_notification_and_returns(app):
     app._notifier.notify.assert_awaited_once()
     title = app._notifier.notify.call_args.kwargs.get("title", "")
     assert "2FA" in title
+    assert attempt == 2  # retried at least once
 
 
 # ---------------------------------------------------------------------------
-# run() – connect error path
+# run() – connect error path: retries, never exits
 # ---------------------------------------------------------------------------
 
 
-async def test_run_generic_connect_error_returns(app):
-    app._downloader.connect = AsyncMock(side_effect=RuntimeError("network down"))
+async def test_run_generic_connect_error_retries(app):
+    """Connection errors cause retry, not immediate exit."""
+    app._reconnect_interval = 0
+    attempt = 0
+
+    async def _connect():
+        nonlocal attempt
+        attempt += 1
+        if attempt == 1:
+            raise RuntimeError("network down")
+        app._running = False
+        raise RuntimeError("test stop")
+
+    app._downloader.connect = _connect
     app._storage.ensure_directory = MagicMock()
 
     await app.run()
 
-    # Should have returned without calling download_new_clips
     app._downloader.download_new_clips.assert_not_awaited()
+    assert attempt == 2
+
+
+# ---------------------------------------------------------------------------
+# run() – startup_error mode: web server stays up, connect() never called
+# ---------------------------------------------------------------------------
+
+
+async def test_run_startup_error_never_connects(app):
+    """With startup_error set the app enters web-only mode without calling connect()."""
+    import dataclasses
+
+    app._config = dataclasses.replace(
+        app._config,
+        startup_error="options.json not found",
+        enable_media_server=False,
+    )
+    app._startup_poll_interval = 0  # instant loop in tests
+    app._storage.ensure_directory = MagicMock()
+
+    task = asyncio.create_task(app.run())
+    await asyncio.sleep(0)  # let run() reach the wait loop
+    app._handle_shutdown()  # trigger graceful stop
+    await asyncio.wait_for(task, timeout=2.0)
+
+    app._downloader.connect.assert_not_awaited()
+
+
+async def test_run_startup_error_sets_auth_state(app):
+    """startup_error mode sets downloader auth_state to 'error' for the web UI."""
+    import dataclasses
+
+    app._config = dataclasses.replace(
+        app._config,
+        startup_error="missing credentials",
+        enable_media_server=False,
+    )
+    app._startup_poll_interval = 0
+    app._storage.ensure_directory = MagicMock()
+
+    task = asyncio.create_task(app.run())
+    await asyncio.sleep(0)
+    app._handle_shutdown()
+    await asyncio.wait_for(task, timeout=2.0)
+
+    assert app._downloader.auth_state == "error"
+    assert "missing credentials" in app._downloader.auth_message
+
+
+# ---------------------------------------------------------------------------
+# _connect_with_retry() unit tests
+# ---------------------------------------------------------------------------
+
+
+async def test_connect_with_retry_succeeds_first_attempt(app):
+    app._running = True
+    result = await app._connect_with_retry()
+    assert result is True
+    app._downloader.connect.assert_awaited_once()
+
+
+async def test_connect_with_retry_retries_on_error(app):
+    """Retries until connect() succeeds."""
+    app._running = True
+    app._reconnect_interval = 0
+    attempt = 0
+
+    async def _connect():
+        nonlocal attempt
+        attempt += 1
+        if attempt < 3:
+            raise RuntimeError("transient failure")
+
+    app._downloader.connect = _connect
+
+    result = await app._connect_with_retry()
+    assert result is True
+    assert attempt == 3
+
+
+async def test_connect_with_retry_returns_false_on_sigterm(app):
+    """Returns False immediately when _running is cleared during a retry wait."""
+    app._running = True
+    app._reconnect_interval = 0
+
+    async def _connect():
+        app._running = False
+        raise RuntimeError("fail")
+
+    app._downloader.connect = _connect
+
+    result = await app._connect_with_retry()
+    assert result is False
+
+
+async def test_connect_with_retry_notifies_on_two_fa_timeout(app):
+    """TwoFARequired triggers an HA notification before retrying."""
+    app._running = True
+    app._reconnect_interval = 0
+    attempt = 0
+
+    async def _connect():
+        nonlocal attempt
+        attempt += 1
+        if attempt == 1:
+            raise TwoFARequired("timeout")
+        app._running = False
+        raise RuntimeError("stop")
+
+    app._downloader.connect = _connect
+
+    await app._connect_with_retry()
+
+    app._notifier.notify.assert_awaited_once()
+    assert "2FA" in app._notifier.notify.call_args.kwargs.get("title", "")
 
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@ FROM ${BUILD_FROM}
 
 # BUILD_ARCH is injected by the HA build system for multi-arch images.
 ARG BUILD_ARCH
-ARG BUILD_VERSION=2.1.2
+ARG BUILD_VERSION=2.2.0
 
 # Install C build tools needed by some Python wheels
 RUN apk add --no-cache gcc musl-dev libffi-dev openssl-dev
@@ -19,14 +19,14 @@ COPY blink_downloader/ /app/blink_downloader/
 RUN pip3 install --no-cache-dir /app \
     && rm -rf /app
 
-# Copy rootfs overlay (S6v3 service definitions + run.sh helper)
+# Copy rootfs overlay (services.d entry + run.sh fallback reference)
 COPY rootfs /
-# Mark both entry points executable.
-# The canonical service entry is the S6-overlay v3 longrun definition at
-#   /etc/s6-overlay/s6-rc.d/blink-downloader/run
-# /run.sh is kept as a plain-shell fallback reference but is NOT used as CMD.
+# Belt-and-suspenders chmod — git already tracks 100755, but Docker layer
+# copies preserve the bit; this is a safety net for CI/CD pipelines that
+# might not preserve git file modes.
 RUN chmod a+x /run.sh \
-    && chmod a+x /etc/s6-overlay/s6-rc.d/blink-downloader/run
+    && chmod a+x /etc/services.d/blink-downloader/run \
+    && chmod a+x /etc/services.d/blink-downloader/finish
 
 LABEL \
     org.opencontainers.image.title="Blink Clip Downloader" \
