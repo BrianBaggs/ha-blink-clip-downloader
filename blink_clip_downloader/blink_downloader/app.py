@@ -218,9 +218,7 @@ class BlinkClipDownloaderApp:
             try:
                 await self._downloader.connect()
                 if attempt > 1:
-                    _LOGGER.info(
-                        "Connected to Blink after %d attempt(s)", attempt
-                    )
+                    _LOGGER.info("Connected to Blink after %d attempt(s)", attempt)
                 return True
             except TwoFARequired as exc:
                 _LOGGER.error(
@@ -233,8 +231,7 @@ class BlinkClipDownloaderApp:
                 await self._notifier.notify(str(exc), title="Blink 2FA Required")
             except Exception as exc:  # noqa: BLE001
                 _LOGGER.error(
-                    "Failed to connect to Blink (attempt %d): %s — "
-                    "retrying in %d s",
+                    "Failed to connect to Blink (attempt %d): %s — retrying in %d s",
                     attempt,
                     exc,
                     self._reconnect_interval,
