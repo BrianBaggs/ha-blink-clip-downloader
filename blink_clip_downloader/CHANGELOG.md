@@ -1,5 +1,44 @@
 # Changelog
 
+## 2.5.3
+
+### Bug fixes
+
+- **Fixed `int() argument must be … not 'NoneType'` — clips failing to
+  download** — The Blink API returns `null` (→ Python `None`) for `duration`,
+  `network_id`, and sometimes `source` on live-view clips and certain camera
+  types.  `dict.get(key, default)` only uses its default when the key is
+  **absent** — when the key is present with a `None` value the default is
+  ignored and `None` is returned.  Calling `int(None)` then raises `TypeError`.
+
+  **Root cause locations and fixes:**
+
+  1. **`database.py` `add_clip`** — Changed `int(clip.get("duration", 0))`,
+     `int(clip.get("network_id", 0))`, and `int(clip.get("size_bytes", 0))`
+     to use `or 0` (`int(clip.get("duration") or 0)`, etc.) so a present-but-
+     null value is coerced to `0` before the `int()` call.  Same treatment for
+     the `str()` fields.
+
+  2. **`downloader.py` `_download_clip` result dict** — The `result` dict
+     passed to `add_clip` now normalises nullable fields at the source:
+     `"duration": int(clip.get("duration") or 0)`,
+     `"network_id": int(clip.get("network_id") or 0)`,
+     `"source": str(clip.get("source") or "")`.
+     This also protects the HA event payload and webhook call which consume
+     the same dict.
+
+  3. **`downloader.py` stale warning** — Updated the `"Clip has no address"`
+     warning (leftover from before the `address`→`media` fix in 2.5.2) to
+     `"Clip has no media URL"`.
+
+- **Regression tests added**:
+  - `test_add_clip_with_null_fields` in `test_database.py` — inserts a clip
+    where all nullable integer fields are explicitly `None`; asserts they land
+    as `0` in the database.
+  - `test_download_clip_null_api_fields` in `test_downloader.py` — exercises
+    `_download_clip` end-to-end with a clip whose `duration`, `network_id`, and
+    `source` are all `None`; asserts the returned result dict has safe defaults.
+
 ## 2.5.2
 
 ### Bug fixes

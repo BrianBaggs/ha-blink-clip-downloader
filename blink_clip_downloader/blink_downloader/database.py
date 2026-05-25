@@ -88,14 +88,17 @@ class ClipDatabase:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                str(clip.get("id", "")),
-                str(clip.get("camera", "unknown")),
-                str(clip.get("path", "")),
-                str(clip.get("timestamp", "")),
-                int(clip.get("size_bytes", 0)),
-                int(clip.get("duration", 0)),
-                str(clip.get("source", "")),
-                int(clip.get("network_id", 0)),
+                str(clip.get("id") or ""),
+                str(clip.get("camera") or "unknown"),
+                str(clip.get("path") or ""),
+                str(clip.get("timestamp") or ""),
+                int(clip.get("size_bytes") or 0),
+                # duration / network_id can be None (null) in the Blink API
+                # response for live-view and some camera types — use `or 0`
+                # so int() never receives NoneType.
+                int(clip.get("duration") or 0),
+                str(clip.get("source") or ""),
+                int(clip.get("network_id") or 0),
                 datetime.now(timezone.utc).isoformat(),
             ),
         )

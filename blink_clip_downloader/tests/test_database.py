@@ -82,6 +82,31 @@ async def test_add_clip_when_db_not_init() -> None:
     await d.add_clip(_make_clip())  # should silently no-op
 
 
+async def test_add_clip_with_null_fields(db: ClipDatabase) -> None:
+    """Blink API returns null (→ None) for duration/network_id on some clip types.
+
+    database.add_clip must not raise TypeError when these fields are None.
+    Regression test for: int() argument must be a string … not 'NoneType'.
+    """
+    clip = {
+        "id": "null-fields-clip",
+        "camera": "Front Door",
+        "path": "/share/blink-clips/null-fields-clip.mp4",
+        "timestamp": "2024-06-01T08:00:00+00:00",
+        "size_bytes": None,  # present but null
+        "duration": None,  # present but null
+        "source": None,  # present but null
+        "network_id": None,  # present but null
+    }
+    await db.add_clip(clip)  # must not raise
+    result = await db.get_clip("null-fields-clip")
+    assert result is not None
+    assert result["duration"] == 0
+    assert result["network_id"] == 0
+    assert result["size_bytes"] == 0
+    assert result["source"] == ""
+
+
 # ------------------------------------------------------------------
 # star_clip / set_tags
 # ------------------------------------------------------------------

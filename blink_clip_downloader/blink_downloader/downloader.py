@@ -274,7 +274,7 @@ class BlinkDownloader:
                 timestamp = datetime.now(timezone.utc)
 
             if not url:
-                _LOGGER.warning("Clip %s has no address, skipping", clip_id)
+                _LOGGER.warning("Clip %s has no media URL, skipping", clip_id)
                 return None
 
             if self._storage.is_over_quota():
@@ -317,15 +317,20 @@ class BlinkDownloader:
                     thumb_dest = dest.with_suffix(".jpg")
                     await self._stream_to_file(self._resolve_url(thumb_url), thumb_dest)
 
+            # Normalise nullable Blink API fields before storing — the API
+            # returns null (→ Python None) for duration/network_id on some
+            # clip types (live-view, certain cameras).  Coerce to safe types
+            # so downstream consumers (database, notifier, sensor) never see
+            # NoneType where they expect int/str.
             result = {
                 "id": clip_id,
                 "camera": camera_name,
                 "path": str(dest),
                 "timestamp": timestamp.isoformat(),
                 "size_bytes": size,
-                "network_id": clip.get("network_id"),
-                "duration": clip.get("duration"),
-                "source": clip.get("source"),
+                "network_id": int(clip.get("network_id") or 0),
+                "duration": int(clip.get("duration") or 0),
+                "source": str(clip.get("source") or ""),
             }
             if self._db:
                 await self._db.add_clip(result)

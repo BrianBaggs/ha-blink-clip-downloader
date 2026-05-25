@@ -264,6 +264,61 @@ async def test_download_new_clips_no_clips(dl):
     assert results == []
 
 
+async def test_download_clip_null_api_fields(dl, tmp_path):
+    """_download_clip must not raise TypeError when the Blink API returns null
+    for duration, network_id, or source (present key, None value).
+
+    Regression test for:
+      int() argument must be a string, a bytes-like object or a real number,
+      not 'NoneType'
+    """
+    clip = {
+        "id": 99999,
+        "device_name": "Front Door",
+        "media": "/api/v1/accounts/1/clip/99999.mp4",
+        "thumbnail": None,
+        "created_at": "2024-06-01T08:30:00+00:00",
+        "duration": None,  # null in Blink API for some clip types
+        "network_id": None,  # null in Blink API for some clip types
+        "source": None,  # null in Blink API for some clip types
+        "deleted": False,
+    }
+    content = b"fake video data"
+
+    async def _iter_chunks(chunk_size):
+        yield content
+
+    mock_resp = AsyncMock()
+    mock_resp.status = 200
+    mock_resp.content.iter_chunked = _iter_chunks
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(return_value=mock_resp)
+    mock_session.closed = False
+    dl._session = mock_session
+
+    mock_blink = MagicMock()
+    mock_blink.auth.header = {}
+    mock_blink.urls.base_url = "https://rest-prod.immedia-semi.com"
+    dl._blink = mock_blink
+
+    dl._storage = MagicMock()
+    dl._storage.is_over_quota.return_value = False
+    dl._storage.resolve_path.return_value = tmp_path / "clip.mp4"
+    dl._tracker = MagicMock()
+    dl._db = None  # skip DB write
+
+    sem = asyncio.Semaphore(1)
+    result = await dl._download_clip(clip, sem)
+
+    assert result is not None
+    assert result["duration"] == 0
+    assert result["network_id"] == 0
+    assert result["source"] == ""
+
+
 # ---------------------------------------------------------------------------
 # 2FA waiting
 # ---------------------------------------------------------------------------
