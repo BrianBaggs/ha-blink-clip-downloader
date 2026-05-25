@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import io
 import logging
-import re
 import zipfile
 from pathlib import Path
 from typing import Awaitable, Callable
 
-import aiofiles
 from aiohttp import web
 
 from .database import ClipDatabase
@@ -666,13 +664,18 @@ function ensurePlayer() {
     fluid: true,
     responsive: true,
     controls: true,
-    // 'auto' tells the browser to start buffering immediately so playback
-    // starts without stalling once the user clicks play.
+    // Start buffering immediately so playback doesn't stall on first click.
     preload: 'auto',
     playbackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2],
+    // Reduces seek stalls: instead of jumping the decode pipeline to the
+    // exact seek target, Video.js plays forward to it from the nearest
+    // already-buffered keyframe — eliminates the "frozen frame" during seeks.
+    enableSmoothSeeking: true,
     html5: {
-      // For plain MP4 files let the native browser video implementation
-      // handle buffering (smoother than VHS for progressive downloads).
+      // For plain MP4 progressive downloads, use the browser's native video
+      // stack rather than the VHS (HTTP Streaming) layer which is optimised
+      // for HLS/DASH, not single-file MP4.  Native decoding on the Pi 5 can
+      // also leverage hardware H.264 acceleration via V4L2/MMAL.
       vhs: { overrideNative: false },
       nativeVideoTracks: true,
       nativeAudioTracks: true,
@@ -1557,63 +1560,23 @@ class MediaServer:
         if not file_path.exists():
             raise web.HTTPNotFound(text="Clip file not found on disk")
 
-        file_size = file_path.stat().st_size
-        range_header = request.headers.get("Range", "")
-
-        if range_header:
-            match = re.match(r"bytes=(\d+)-(\d*)", range_header)
-            if match:
-                start = int(match.group(1))
-                end = int(match.group(2)) if match.group(2) else file_size - 1
-                end = min(end, file_size - 1)
-                chunk_len = end - start + 1
-
-                response = web.StreamResponse(
-                    status=206,
-                    headers={
-                        "Content-Type": "video/mp4",
-                        "Content-Range": f"bytes {start}-{end}/{file_size}",
-                        "Content-Length": str(chunk_len),
-                        "Accept-Ranges": "bytes",
-                        # Allow browsers to cache video segments so seeks are
-                        # served from cache without re-fetching from the server.
-                        "Cache-Control": "public, max-age=3600",
-                    },
-                )
-                await response.prepare(request)
-                async with aiofiles.open(file_path, "rb") as fh:
-                    await fh.seek(start)
-                    remaining = chunk_len
-                    while remaining > 0:
-                        # 256 KiB chunks — larger buffers mean fewer round
-                        # trips, reducing the micro-stalls that cause choppy
-                        # playback especially on slower storage.
-                        data = await fh.read(min(262_144, remaining))
-                        if not data:
-                            break
-                        await response.write(data)
-                        remaining -= len(data)
-                return response
-
-        response = web.StreamResponse(
+        # aiohttp's FileResponse uses the OS sendfile() syscall on Linux,
+        # bypassing the Python interpreter for the actual byte transfer.
+        # It automatically handles Range requests (206 Partial Content),
+        # ETag/Last-Modified caching, and correct Accept-Ranges headers —
+        # all of which contribute to stutter-free video seeking on the Pi.
+        return web.FileResponse(
+            file_path,
+            chunk_size=262_144,
             headers={
-                "Content-Type": "video/mp4",
-                "Content-Length": str(file_size),
-                "Accept-Ranges": "bytes",
                 "Content-Disposition": f'inline; filename="{file_path.name}"',
+                # Allow the browser to cache video segments so re-seeking an
+                # already-watched section never round-trips to the server.
                 "Cache-Control": "public, max-age=3600",
-            }
+            },
         )
-        await response.prepare(request)
-        async with aiofiles.open(file_path, "rb") as fh:
-            while True:
-                data = await fh.read(262_144)
-                if not data:
-                    break
-                await response.write(data)
-        return response
 
-    async def _handle_thumbnail(self, request: web.Request) -> web.Response:
+    async def _handle_thumbnail(self, request: web.Request) -> web.StreamResponse:
         clip_id = request.match_info["id"]
         clip = await self._db.get_clip(clip_id)
         if not clip:
@@ -1621,9 +1584,10 @@ class MediaServer:
 
         thumb = Path(clip["file_path"]).with_suffix(".jpg")
         if thumb.exists():
-            async with aiofiles.open(thumb, "rb") as fh:
-                data = await fh.read()
-            return web.Response(body=data, content_type="image/jpeg")
+            return web.FileResponse(
+                thumb,
+                headers={"Cache-Control": "public, max-age=3600"},
+            )
 
         raise web.HTTPNotFound(text="Thumbnail not available")
 

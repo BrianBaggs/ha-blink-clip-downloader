@@ -169,6 +169,149 @@ class BlinkDownloader:
         return results
 
     # ------------------------------------------------------------------
+    # Public: Sync Module local storage (USB drive)
+    # ------------------------------------------------------------------
+
+    async def download_local_storage_clips(self) -> list[dict[str, Any]]:
+        """Download clips from every Blink Sync Module's USB local storage.
+
+        Blink's API does not offer direct LAN access to the Sync Module's USB
+        drive.  The workflow is:
+
+        1. Refresh the manifest (list of clips on the USB drive).
+        2. For each clip not yet in the tracker, call ``prepare_download()``
+           which tells the Sync Module to upload the clip to Blink's cloud.
+        3. Download the freshly-uploaded clip from the cloud URL.
+
+        Returns a list of result dicts in the same format as
+        :meth:`download_new_clips`, including ``"source": "local_storage"``
+        so they appear correctly in the web UI and HA events.
+        """
+        if self._blink is None:
+            return []
+
+        results: list[dict[str, Any]] = []
+
+        for sync_name, sync in self._blink.sync.items():
+            # BlinkOwl / BlinkLotus (standalone mini cameras) don't have USB.
+            if not getattr(sync, "local_storage", False):
+                _LOGGER.debug(
+                    "Sync module %r: local storage not active — skipping",
+                    sync_name,
+                )
+                continue
+
+            try:
+                await sync.update_local_storage_manifest()
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Could not refresh local-storage manifest for %r: %s",
+                    sync_name,
+                    exc,
+                )
+                continue
+
+            manifest = getattr(sync, "_local_storage", {}).get("manifest") or set()
+            if not manifest:
+                _LOGGER.debug(
+                    "Sync module %r: local-storage manifest is empty", sync_name
+                )
+                continue
+
+            _LOGGER.debug(
+                "Sync module %r: %d clip(s) in local-storage manifest",
+                sync_name,
+                len(manifest),
+            )
+
+            for item in manifest:
+                # Prefix "local_" keeps these IDs disjoint from cloud IDs.
+                clip_id = f"local_{item.id}"
+
+                if self._tracker.is_downloaded(clip_id):
+                    continue
+
+                if self._storage.is_over_quota():
+                    _LOGGER.warning(
+                        "Storage quota reached — stopping local-storage download"
+                    )
+                    return results
+
+                camera_name: str = item.name or "Unknown"
+
+                # blinkpy stores created_at as a datetime.datetime object.
+                ts = item.created_at
+                if isinstance(ts, str):
+                    try:
+                        ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    except (ValueError, AttributeError):
+                        ts = datetime.now(timezone.utc)
+
+                dest = self._storage.resolve_path(camera_name, ts, clip_id)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+
+                if dest.exists():
+                    size = dest.stat().st_size
+                    self._tracker.mark_downloaded(clip_id, size)
+                    continue
+
+                try:
+                    _LOGGER.info(
+                        "Preparing local-storage clip %s from %r (~%.1f KB)",
+                        item.id,
+                        camera_name,
+                        (item.size or 0) / 1024,
+                    )
+                    await item.prepare_download(self._blink)
+                    success = await item.download_video(
+                        self._blink,
+                        str(dest),
+                        max_retries=self._config.retry_attempts,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    _LOGGER.error(
+                        "Error downloading local-storage clip %s: %s", item.id, exc
+                    )
+                    if dest.exists():
+                        dest.unlink(missing_ok=True)
+                    continue
+
+                if not success:
+                    _LOGGER.warning(
+                        "Local-storage clip %s download failed (retries exhausted)",
+                        item.id,
+                    )
+                    if dest.exists():
+                        dest.unlink(missing_ok=True)
+                    continue
+
+                size = dest.stat().st_size if dest.exists() else 0
+                self._tracker.mark_downloaded(clip_id, size)
+                _LOGGER.info(
+                    "Downloaded local-storage clip %s from %r → %s (%d KB)",
+                    item.id,
+                    camera_name,
+                    dest,
+                    size // 1024,
+                )
+
+                result: dict[str, Any] = {
+                    "id": clip_id,
+                    "camera": camera_name,
+                    "path": str(dest),
+                    "timestamp": ts.isoformat(),
+                    "size_bytes": size,
+                    "network_id": 0,
+                    "duration": 0,
+                    "source": "local_storage",
+                }
+                if self._db:
+                    await self._db.add_clip(result)
+                results.append(result)
+
+        return results
+
+    # ------------------------------------------------------------------
     # Internal: clip list
     # ------------------------------------------------------------------
 

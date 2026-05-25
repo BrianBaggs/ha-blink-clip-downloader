@@ -79,6 +79,13 @@ class AppConfig:
     archive_enabled: bool = False
     archive_after_days: int = 60
 
+    # --- Sync Module local storage (USB drive clips) ---
+    # When True, each poll cycle also downloads clips stored on the physical
+    # USB drive attached to the Blink Sync Module.  Blink's API does not
+    # support direct LAN access; clips are temporarily uploaded to the Blink
+    # cloud then fetched from there, so an internet connection is required.
+    download_local_storage: bool = False
+
     # --- Logging ---
     log_level: str = "info"
 
@@ -186,5 +193,6 @@ def _parse_config(data: dict) -> AppConfig:
         digest_time=str(data.get("digest_time", "08:00")),
         archive_enabled=bool(data.get("archive_enabled", False)),
         archive_after_days=max(1, int(data.get("archive_after_days", 60))),
+        download_local_storage=bool(data.get("download_local_storage", False)),
         log_level=log_level,
     )

@@ -193,3 +193,20 @@ def test_appconfig_startup_error_can_be_set_directly():
     cfg = AppConfig(username="", password="", startup_error="options.json not found")
     assert cfg.startup_error == "options.json not found"
     assert cfg.username == ""
+
+
+# ---------------------------------------------------------------------------
+# download_local_storage (v2.5.5)
+# ---------------------------------------------------------------------------
+
+
+def test_download_local_storage_defaults_to_false():
+    cfg = _parse_config({"username": "u", "password": "p"})
+    assert cfg.download_local_storage is False
+
+
+def test_download_local_storage_can_be_enabled():
+    cfg = _parse_config(
+        {"username": "u", "password": "p", "download_local_storage": True}
+    )
+    assert cfg.download_local_storage is True

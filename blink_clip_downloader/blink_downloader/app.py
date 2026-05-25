@@ -274,6 +274,12 @@ class BlinkClipDownloaderApp:
             return
 
         downloaded = await self._downloader.download_new_clips()
+
+        # Augment with clips from the Sync Module's USB local storage.
+        if self._config.download_local_storage:
+            local_clips = await self._downloader.download_local_storage_clips()
+            downloaded = [*downloaded, *local_clips]
+
         self._session_downloads += len(downloaded)
 
         if downloaded:

@@ -528,3 +528,57 @@ async def test_on_clips_downloaded_updates_disk_stats_in_extra_status(app):
     await app._on_clips_downloaded(clips)
 
     assert app._media_server.extra_status.get("disk") == fake_disk
+
+
+# ---------------------------------------------------------------------------
+# Local storage integration in poll cycle (v2.5.5)
+# ---------------------------------------------------------------------------
+
+
+async def test_poll_cycle_calls_local_storage_when_enabled(app):
+    """When download_local_storage=True, the poll cycle fetches USB clips."""
+    app._config.download_local_storage = True
+    local_clip = {
+        "id": "local_1",
+        "camera": "Front Door",
+        "path": "/p/local_1.mp4",
+        "timestamp": "2024-06-01T08:00:00+00:00",
+        "size_bytes": 500_000,
+        "source": "local_storage",
+    }
+    app._downloader.download_local_storage_clips = AsyncMock(return_value=[local_clip])
+
+    await app._poll_cycle()
+
+    app._downloader.download_local_storage_clips.assert_awaited_once()
+    assert app._session_downloads == 1  # local clip counted
+
+
+async def test_poll_cycle_skips_local_storage_when_disabled(app):
+    """When download_local_storage=False, local-storage method is never called."""
+    app._config.download_local_storage = False
+    app._downloader.download_local_storage_clips = AsyncMock(return_value=[])
+
+    await app._poll_cycle()
+
+    app._downloader.download_local_storage_clips.assert_not_awaited()
+
+
+async def test_poll_cycle_local_storage_clips_trigger_notification(app):
+    """Local-storage clips trigger the same HA notification as cloud clips."""
+    app._config.download_local_storage = True
+    local_clip = {
+        "id": "local_2",
+        "camera": "Garage",
+        "path": "/p",
+        "timestamp": "t",
+        "size_bytes": 1,
+        "source": "local_storage",
+    }
+    app._downloader.download_local_storage_clips = AsyncMock(return_value=[local_clip])
+
+    await app._poll_cycle()
+
+    app._notifier.notify.assert_awaited_once()
+    notify_msg = app._notifier.notify.call_args[0][0]
+    assert "Garage" in notify_msg

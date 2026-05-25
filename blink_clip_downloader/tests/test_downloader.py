@@ -547,3 +547,120 @@ def test_persist_auth_handles_exception(dl):
         "blink_downloader.downloader.AUTH_FILE", Path("/nonexistent/deep/auth.json")
     ):
         dl._persist_auth()  # no exception
+
+
+# ---------------------------------------------------------------------------
+# download_local_storage_clips (v2.5.5)
+# ---------------------------------------------------------------------------
+
+
+async def test_download_local_storage_no_blink_returns_empty(dl):
+    """Returns empty list when blink is not connected yet."""
+    dl._blink = None
+    assert await dl.download_local_storage_clips() == []
+
+
+async def test_download_local_storage_skips_no_usb(dl):
+    """Sync modules without active local storage are silently skipped."""
+    mock_sync = MagicMock()
+    mock_sync.local_storage = False
+    dl._blink = MagicMock()
+    dl._blink.sync = {"Network": mock_sync}
+    assert await dl.download_local_storage_clips() == []
+
+
+async def test_download_local_storage_handles_manifest_error(dl):
+    """Manifest refresh failures are caught and do not propagate."""
+    mock_sync = MagicMock()
+    mock_sync.local_storage = True
+    mock_sync.update_local_storage_manifest = AsyncMock(
+        side_effect=RuntimeError("network timeout")
+    )
+    dl._blink = MagicMock()
+    dl._blink.sync = {"Network": mock_sync}
+    assert await dl.download_local_storage_clips() == []
+
+
+async def test_download_local_storage_skips_already_tracked(dl):
+    """Clips already in the tracker are not re-downloaded."""
+    mock_item = MagicMock()
+    mock_item.id = 7777
+    mock_item.name = "Garage"
+    mock_item.created_at = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    mock_item.size = 1024
+
+    mock_sync = MagicMock()
+    mock_sync.local_storage = True
+    mock_sync.update_local_storage_manifest = AsyncMock()
+    mock_sync._local_storage = {"manifest": {mock_item}, "last_manifest_id": "m1"}
+
+    dl._blink = MagicMock()
+    dl._blink.sync = {"Network": mock_sync}
+    dl._tracker.mark_downloaded("local_7777")
+
+    results = await dl.download_local_storage_clips()
+    assert results == []
+
+
+async def test_download_local_storage_downloads_new_clip(dl, tmp_path):
+    """Successfully downloads a new clip from USB local storage."""
+    from pathlib import Path as _Path
+
+    mock_item = MagicMock()
+    mock_item.id = 5555
+    mock_item.name = "Front Door"
+    mock_item.created_at = datetime(2024, 6, 1, 8, 0, tzinfo=timezone.utc)
+    mock_item.size = 2_000_000
+    mock_item.prepare_download = AsyncMock(return_value=True)
+
+    # Simulate download_video writing a file to dest and returning True.
+    async def _fake_download(blink, file_name, max_retries=4):
+        _Path(file_name).parent.mkdir(parents=True, exist_ok=True)
+        _Path(file_name).write_bytes(b"V" * 100)
+        return True
+
+    mock_item.download_video = _fake_download
+
+    mock_sync = MagicMock()
+    mock_sync.local_storage = True
+    mock_sync.update_local_storage_manifest = AsyncMock()
+    mock_sync._local_storage = {"manifest": {mock_item}, "last_manifest_id": "m99"}
+
+    mock_blink = MagicMock()
+    mock_blink.sync = {"Network": mock_sync}
+    dl._blink = mock_blink
+    dl._db = None  # skip DB write
+
+    results = await dl.download_local_storage_clips()
+
+    assert len(results) == 1
+    r = results[0]
+    assert r["id"] == "local_5555"
+    assert r["camera"] == "Front Door"
+    assert r["source"] == "local_storage"
+    assert dl._tracker.is_downloaded("local_5555")
+
+
+async def test_download_local_storage_download_failure_skipped(dl, tmp_path):
+    """A failed download_video call is logged and skipped, not raised."""
+
+    mock_item = MagicMock()
+    mock_item.id = 6666
+    mock_item.name = "Backyard"
+    mock_item.created_at = datetime(2024, 6, 2, tzinfo=timezone.utc)
+    mock_item.size = 500_000
+    mock_item.prepare_download = AsyncMock(return_value=True)
+    mock_item.download_video = AsyncMock(return_value=False)  # download fails
+
+    mock_sync = MagicMock()
+    mock_sync.local_storage = True
+    mock_sync.update_local_storage_manifest = AsyncMock()
+    mock_sync._local_storage = {"manifest": {mock_item}, "last_manifest_id": "mx"}
+
+    dl._blink = MagicMock()
+    dl._blink.sync = {"Network": mock_sync}
+    dl._db = None
+
+    results = await dl.download_local_storage_clips()
+    assert results == []
+    assert not dl._tracker.is_downloaded("local_6666")

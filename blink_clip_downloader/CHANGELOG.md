@@ -1,5 +1,82 @@
 # Changelog
 
+## 2.5.5
+
+### New features
+
+- **Sync Module USB local-storage download** (`download_local_storage: false`)
+  — When a USB drive is plugged into a Blink Sync Module the module records
+  clips to it as well as to the cloud.  Enabling this option instructs the
+  add-on to also fetch those locally-stored clips each poll cycle.
+
+  **How it works:**
+  1. After every normal cloud download the add-on iterates `blink.sync` to
+     find any Sync Module that reports `local_storage = True`.
+  2. For each such module it calls `sync.update_local_storage_manifest()` to
+     fetch the current USB clip list via the Blink cloud API (no direct LAN
+     access is required).
+  3. New clips (not already in the tracker) are downloaded using blinkpy's
+     `LocalStorageMediaItem.prepare_download()` + `download_video()`.
+  4. Downloaded clips are saved to the same `download_path` directory tree as
+     cloud clips (respecting `organize_by_camera` / `organize_by_date`) and
+     indexed in the SQLite clip library with `source = "local_storage"`.
+  5. Clips skipped by `is_over_quota()` halt the batch for that poll cycle to
+     prevent storage overruns.
+
+  The clip IDs are prefixed with `local_` to avoid collisions with cloud
+  clip IDs.  The feature is opt-in and disabled by default.
+
+### Improvements
+
+- **`web.FileResponse`-based video streaming** — The previous manual
+  `aiofiles`-based chunked stream loop has been replaced with aiohttp's
+  built-in `web.FileResponse`.  On Linux (including Raspberry Pi OS) aiohttp
+  delegates the transfer to the kernel's `sendfile(2)` system call, which
+  copies bytes directly from the filesystem page cache to the socket buffer
+  without passing through the Python interpreter.  The result is:
+  - **Lower CPU usage** — the Python GIL is not held during byte transfer;
+    the asyncio event loop stays responsive for other requests.
+  - **Automatic Range support** — `206 Partial Content` byte-range requests
+    (used by the browser for seeking) are handled natively by aiohttp/the
+    kernel, with no Python loop involved.
+  - **Smoother seek performance on Raspberry Pi 5** — the Pi's kernel page
+    cache warms quickly via `sendfile`, and seeks that land on cached pages
+    resolve with essentially zero latency.
+  - Removed the `aiofiles` and `re` dependencies from `media_server.py`.
+
+- **Video.js `enableSmoothSeeking: true`** — When the user clicks or scrubs
+  in the seek bar Video.js now plays forward at 2× speed to reach the target
+  position rather than issuing an immediate jump.  The result is a fluid
+  "glide" instead of a hard cut, eliminating the black-frame stall that
+  previously appeared during seeks on the Pi 5.
+
+### Tests
+
+- `test_download_local_storage_no_blink_returns_empty` — returns `[]` when
+  `_blink` is `None`.
+- `test_download_local_storage_skips_no_usb` — skips sync modules whose
+  `local_storage` attribute is falsy.
+- `test_download_local_storage_handles_manifest_error` — logs a warning and
+  continues when `update_local_storage_manifest()` raises.
+- `test_download_local_storage_skips_already_tracked` — does not re-download
+  clips that are already in the tracker.
+- `test_download_local_storage_downloads_new_clip` — happy-path: clip is
+  downloaded, written to disk, added to tracker, and added to the DB.
+- `test_download_local_storage_download_failure_skipped` — when
+  `download_video()` returns `False` the clip is excluded from results.
+- `test_poll_cycle_calls_local_storage_when_enabled` — `_poll_cycle` calls
+  `download_local_storage_clips()` when the option is enabled.
+- `test_poll_cycle_skips_local_storage_when_disabled` — `_poll_cycle` does
+  not call `download_local_storage_clips()` when the option is disabled.
+- `test_poll_cycle_local_storage_clips_trigger_notification` — local-storage
+  clips returned alongside cloud clips produce a combined HA notification.
+- `test_download_local_storage_defaults_to_false` — `AppConfig` defaults to
+  `download_local_storage = False`.
+- `test_download_local_storage_can_be_enabled` — `_parse_config` honours
+  `download_local_storage: True`.
+
+Total: **285 tests** (up from 274 in v2.5.4); coverage 91 %.
+
 ## 2.5.4
 
 ### Bug fixes

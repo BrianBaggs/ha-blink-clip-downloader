@@ -1,5 +1,5 @@
 name: Blink Clip Downloader
-version: "2.5.4"
+version: "2.5.5"
 slug: blink_clip_downloader
 description: >-
   Continuously downloads Blink camera clips to local storage with timestamps,
@@ -94,6 +94,11 @@ options:
   archive_enabled: false
   archive_after_days: 60
 
+  # --- Sync Module local storage (USB drive clips) ---
+  # Requires a USB drive plugged into the Blink Sync Module.
+  # Clips transit via the Blink cloud (no direct LAN access).
+  download_local_storage: false
+
   # --- Logging ---
   log_level: "info"
 
@@ -135,4 +140,5 @@ schema:
   digest_time: "str"
   archive_enabled: "bool"
   archive_after_days: "int(1,365)"
+  download_local_storage: "bool"
   log_level: "list(debug|info|warning|error)"
