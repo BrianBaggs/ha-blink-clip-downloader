@@ -1,44 +1,50 @@
 # Changelog
 
-## 2.2.1
+## 2.3.0
 
 ### Bug fixes
 
 - **Definitive fix for `s6-svscan: fatal: another instance of s6-svscan is
   already running` and `s6-linux-init (child): warning: s6-svscan failed to
-  send a notification byte!`** — Root-cause analysis against the actual
-  `hassio-addons/app-example` reference implementation revealed that the
-  correct approach for HA OS add-ons is **`/etc/s6-overlay/s6-rc.d/`**, not
-  the legacy `/etc/services.d/` directory used in v2.2.0.
+  send a notification byte!`** — Root-cause identified by reading the actual
+  HA Supervisor source code (`supervisor/apps/app.py`).
 
-  Although the HA base image technically supports `services.d` via an
-  s6-overlay v3 backward-compat shim, no official add-on uses it and it is
-  known to interfere with the base image's stage-2 s6-rc startup sequence in
-  ways that produce the svscan errors seen in v2.2.0.
+  **Root cause:** The HA Supervisor has two container-restart code paths:
+  - `ContainerState.FAILED` → `stop(remove_container=True)` then fresh `run()`
+    — creates a brand-new container with a clean writable layer.
+  - Any other state (e.g. `UNHEALTHY`) → `container.restart()` — restarts the
+    same container **in place**, preserving its writable layer.
 
-  **Changes:**
-  1. **Removed** `rootfs/etc/services.d/` entirely.
-  2. **Added** `rootfs/etc/s6-overlay/s6-rc.d/blink-downloader/` with the
-     canonical longrun service structure:
-     - `type` → `longrun`
-     - `run` → `exec python3 -m blink_downloader`
-     - `finish` → HA-standard finish script (halts container on SIGTERM or
-       crash so the Supervisor restart cycle is clean)
-     - `dependencies.d/base` → empty marker (service depends on the S6 base
-       bundle)
-  3. **Added** `rootfs/etc/s6-overlay/s6-rc.d/user/contents.d/blink-downloader`
-     — empty marker that registers the service in the user bundle.
-     **No `user/type` file is included** — the base image ships one already;
-     a duplicate causes `s6-rc-compile` to fail and is the root cause of the
-     "another instance" log noise seen in earlier versions.
-  4. **Updated** `Dockerfile` `chmod` lines to target the new paths.
+  `/run` is part of the Docker container's writable overlay layer — it is
+  **not** a tmpfs in Docker's default configuration.  When the Supervisor
+  takes the `container.restart()` path, `/run/service/.s6-svscan/lock` from
+  the previous s6-svscan run survives into the restarted container.
+  s6-overlay's preinit (`s6-rmrf /run/service ...`) runs but the write is
+  effectively a no-op because the kernel already released the lock when the
+  previous process died — the file still exists.  The new s6-svscan then
+  calls `lock_exnb()` on the file, gets `EWOULDBLOCK`, and prints
+  `"another instance already running"`.  The container exits, the Supervisor
+  restarts it in-place again, and the cycle repeats.
 
-- **Improved `finish` script** — now follows the `hassio-addons/app-example`
-  pattern exactly: writes the correct exit code to
-  `/run/s6-linux-init-container-results/exitcode` and calls
-  `exec /run/s6/basedir/bin/halt` on SIGTERM or unexpected crash, giving the
-  HA Supervisor a clean restart target instead of spinning in a service-level
-  loop inside the container.
+  **Fix:** `rootfs/run.sh` is now the container `ENTRYPOINT`.  It runs first
+  as PID 1, unconditionally removes `/run/s6`, `/run/service`, and
+  `/run/s6-rc*` (these are always recreated by s6-overlay's own preinit
+  immediately after), then `exec`s the real `/init` so s6-overlay takes over
+  as PID 1 and the startup proceeds normally.  The AppArmor profile already
+  has `rw` on `/run/` so the deletion is permitted.
+
+  **Other changes included in this release:**
+  - Switched from `rootfs/etc/services.d/` (v2.2.0) to the canonical
+    `rootfs/etc/s6-overlay/s6-rc.d/blink-downloader/` structure
+    (`type`, `run`, `finish`, `dependencies.d/base`) used by all official
+    hassio-addons.
+  - `rootfs/etc/s6-overlay/s6-rc.d/user/contents.d/blink-downloader` empty
+    marker registers the service in the user bundle.  **No `user/type` file**
+    — the base image already ships one; a duplicate causes `s6-rc-compile`
+    to fail.
+  - `finish` script follows the `hassio-addons/app-example` pattern: records
+    the exit code in `/run/s6-linux-init-container-results/exitcode` and
+    calls `exec /run/s6/basedir/bin/halt` on SIGTERM or unexpected crash.
 
 ## 2.2.0
 

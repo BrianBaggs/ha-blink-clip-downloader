@@ -15,7 +15,7 @@
 #     same container (handles intentional self-restarts).
 # ==============================================================================
 declare exit_code_container
-readonly exit_code_container=$(</run/s6-linux-init-container-results/exitcode)
+readonly exit_code_container=$(cat /run/s6-linux-init-container-results/exitcode 2>/dev/null || echo "0")
 readonly exit_code_service="${1}"
 readonly exit_code_signal="${2}"
 

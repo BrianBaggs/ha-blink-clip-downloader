@@ -1,12 +1,12 @@
 name: Blink Clip Downloader
-version: "2.2.1"
+version: "2.3.0"
 slug: blink_clip_downloader
 description: >-
   Continuously downloads Blink camera clips to local storage with timestamps,
   per-camera organisation, retention policies, storage quotas, HA notifications,
   motion/time-window filtering, SQLite clip library, Video.js web UI, and
   event-driven instant download after motion events.
-url: "https://github.com/yourusername/ha-blink-clip-downloader/tree/main/blink_clip_downloader"
+url: "https://github.com/brianbaggs/ha-blink-clip-downloader/tree/main/blink_clip_downloader"
 arch:
   - aarch64
   - amd64
