@@ -1,13 +1,16 @@
+---
 name: Build & Publish
 
-on:
+'on':
   release:
     types: [published]
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/ha-blink-clip-downloader/blink_clip_downloader
+  IMAGE_NAME: >-
+    ${{ github.repository_owner }}/ha-blink-clip-downloader/
+    blink_clip_downloader
 
 jobs:
   build:
@@ -16,19 +19,17 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     strategy:
       matrix:
-        arch: [aarch64, amd64, armhf, armv7]
+        arch: [aarch64, amd64]
         include:
           - arch: aarch64
             platform: linux/arm64
           - arch: amd64
             platform: linux/amd64
-          - arch: armhf
-            platform: linux/arm/v6
-          - arch: armv7
-            platform: linux/arm/v7
 
     steps:
       - uses: actions/checkout@v4
@@ -49,19 +50,24 @@ jobs:
       - name: Read add-on version
         id: version
         run: |
-          echo "version=$(grep '^version:' blink_clip_downloader/config.yaml | awk '{print $2}' | tr -d '\"')" >> "$GITHUB_OUTPUT"
+          VERSION=$(grep '^version:' blink_clip_downloader/config.yaml \
+            | awk '{print $2}' \
+            | tr -d '"')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: home-assistant/builder/actions/build-image@2026.03.2
         with:
-          context: blink_clip_downloader/
-          platforms: ${{ matrix.platform }}
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-${{ matrix.arch }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ matrix.arch }}
-          cache-from: type=gha,scope=${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+          arch: ${{ matrix.arch }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image: ${{ env.REGISTRY }}/${{ matrix.arch }}-${{ env.IMAGE_NAME }}
+          image-tags: |
+            ${{ steps.version.outputs.version }}
+            latest
+          push: "true"
+          cosign: "false"
+          version: ${{ steps.version.outputs.version }}
+          context: blink_clip_downloader
           build-args: |
             BUILD_FROM=ghcr.io/home-assistant/base-python:3.12
 
@@ -73,29 +79,15 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - name: Publish multi-arch manifest
+        uses: >-
+          home-assistant/builder/actions/publish-multi-arch-manifest@2026.03.2
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Read add-on version
-        id: version
-        run: |
-          echo "version=$(grep '^version:' blink_clip_downloader/config.yaml | awk '{print $2}' | tr -d '\"')" >> "$GITHUB_OUTPUT"
-
-      - name: Create and push manifest
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-          IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
-          docker manifest create ${IMAGE}:${VERSION} \
-            ${IMAGE}:${VERSION}-amd64 \
-            ${IMAGE}:${VERSION}-aarch64 \
-            ${IMAGE}:${VERSION}-armhf \
-            ${IMAGE}:${VERSION}-armv7
-
-          docker manifest push ${IMAGE}:${VERSION}
+          architectures: '["amd64","aarch64"]'
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image-name: ${{ env.IMAGE_NAME }}
+          image-tags: |
+            ${{ needs.build.outputs.version }}
+            latest
+          registry-prefix: ${{ env.REGISTRY }}
+          cosign: "false"
