@@ -1,3 +1,4 @@
+---
 configuration:
   username:
     name: Blink Username
@@ -71,7 +72,8 @@ configuration:
       attempt number (e.g. 5 s, 10 s, 15 s). Range 0–300 s.
   notify_ha:
     name: HA Notifications
-    description: Send a persistent notification in Home Assistant when new clips arrive.
+    description: >-
+      Send a persistent notification in Home Assistant when new clips arrive.
   ha_notification_title:
     name: Notification Title
     description: Title used for Home Assistant persistent notifications.
@@ -107,7 +109,7 @@ configuration:
     name: Watch HA Motion Events
     description: >-
       Subscribe to Home Assistant state_changed events and trigger an immediate
-      Blink poll when a Blink motion sensor fires, so clips appear within seconds.
+      Blink poll when a motion sensor fires, so clips appear within seconds.
   fast_poll_duration:
     name: Fast-Poll Duration (seconds)
     description: >-

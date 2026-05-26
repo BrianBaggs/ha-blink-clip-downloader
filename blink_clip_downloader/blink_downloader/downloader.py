@@ -161,7 +161,7 @@ class BlinkDownloader:
         for clip, result in zip(new_clips, raw_results):
             if isinstance(result, Exception):
                 _LOGGER.error("Failed to download clip %s: %s", clip.get("id"), result)
-            elif result is not None:
+            elif isinstance(result, dict):
                 results.append(result)
 
         self._tracker.save()
@@ -559,14 +559,14 @@ class BlinkDownloader:
                 code = self._two_fa_code or ""
                 self._two_fa_event.clear()
                 self._two_fa_code = None
-                if code:
+                if code and self._blink:
                     await self._blink.send_2fa_code(code)
                     return
 
             # --- File fallback (CLI / backwards compat) ---
             if TWO_FA_FILE.exists():
-                code = TWO_FA_FILE.read_text().strip()
-                if code:
+                code = TWO_FA_FILE.read_text(encoding="utf-8").strip()
+                if code and self._blink:
                     TWO_FA_FILE.unlink(missing_ok=True)
                     await self._blink.send_2fa_code(code)
                     return

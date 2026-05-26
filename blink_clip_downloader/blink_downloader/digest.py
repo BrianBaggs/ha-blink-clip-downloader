@@ -99,13 +99,16 @@ class DailyDigest:
         if not self._state_file.exists():
             return None
         try:
-            data = json.loads(self._state_file.read_text())
+            data = json.loads(self._state_file.read_text(encoding="utf-8"))
             return date.fromisoformat(data["last_sent"])
         except (KeyError, ValueError, json.JSONDecodeError):
             return None
 
     def _save_last_sent(self) -> None:
+        """Save last digest send time to state file."""
         try:
+            if self._last_sent is None:
+                return
             self._state_file.write_text(
                 json.dumps({"last_sent": self._last_sent.isoformat()})
             )

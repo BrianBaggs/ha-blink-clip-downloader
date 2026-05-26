@@ -44,3 +44,27 @@ omit = [
 [tool.coverage.report]
 fail_under = 80
 show_missing = true
+
+[tool.pyright]
+include = ["blink_downloader", "tests"]
+exclude = [
+    "**/__pycache__",
+    "**/.venv",
+    "**/node_modules",
+    "build",
+    "dist",
+    "**/.*"
+]
+
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+
+reportMissingImports = "error"
+reportMissingTypeStubs = "warning"
+reportUnusedImport = "warning"
+reportUnusedVariable = "warning"
+
+# Important for Home Assistant + Blink API dynamic responses
+reportOptionalMemberAccess = "warning"
+reportOptionalOperand = "warning"
+reportGeneralTypeIssues = "warning"

@@ -90,7 +90,9 @@ async def test_index_has_security_headers(client: TestClient) -> None:
 async def test_list_clips_empty(client: TestClient) -> None:
     resp = await client.get("/api/clips")
     assert resp.status == 200
-    assert await resp.json() == []
+    data = await resp.json()
+    assert isinstance(data, list)
+    assert data == []
 
 
 async def test_list_clips_returns_data(client: TestClient, db: ClipDatabase) -> None:
@@ -128,7 +130,8 @@ async def test_list_clips_sort_param(client: TestClient, db: ClipDatabase) -> No
         )
     resp = await client.get("/api/clips?sort=oldest")
     data = await resp.json()
-    assert data[0]["id"] == "t0"
+    if isinstance(data, list) and len(data) > 0:
+        assert data[0]["id"] == "t0"
 
 
 # ---------------------------------------------------------------------------

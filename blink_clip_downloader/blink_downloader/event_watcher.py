@@ -70,6 +70,7 @@ class HAEventWatcher:
         _LOGGER.info("HA event watcher stopped")
 
     async def stop(self) -> None:
+        """Stop the event watcher."""
         self._running = False
         if self._session and not self._session.closed:
             await self._session.close()
@@ -85,7 +86,7 @@ class HAEventWatcher:
         async with self._session.ws_connect(
             _WS_URL,
             heartbeat=30,
-            timeout=aiohttp.ClientWSTimeout(ws_close=10),
+
         ) as ws:
             _LOGGER.debug("WebSocket connected to %s", _WS_URL)
 
