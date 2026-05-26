@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Install ruff
         run: pip install ruff==0.4.7
@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.12"]
+        python: ["3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +60,7 @@ jobs:
             -v
 
       - name: Upload coverage to Codecov
-        if: matrix.python == '3.12'
+        if: matrix.python == '3.13'
         uses: codecov/codecov-action@v4
         with:
           files: blink_clip_downloader/coverage.xml
@@ -75,7 +75,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Install pip-audit
         run: pip install pip-audit
