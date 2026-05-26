@@ -6,7 +6,7 @@ description: >-
   per-camera organisation, retention policies, storage quotas, HA notifications,
   motion/time-window filtering, SQLite clip library, Video.js web UI, and
   event-driven instant download after motion events.
-url: "https://github.com/brianbaggs/ha-blink-clip-downloader/tree/main/blink_clip_downloader"
+url: "https://github.com/brianbaggs35/ha-blink-clip-downloader/tree/main/blink_clip_downloader"
 arch:
   - aarch64
   - amd64

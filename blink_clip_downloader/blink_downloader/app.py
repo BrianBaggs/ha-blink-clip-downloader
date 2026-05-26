@@ -90,6 +90,7 @@ class BlinkClipDownloaderApp:
         # Fast-poll state: epoch time until which we poll at fast_poll_interval.
         self._fast_poll_until: float = 0.0
         self._bg_tasks: list[asyncio.Task] = []
+        self._loop: asyncio.AbstractEventLoop | None = None
         # Seconds between Blink auth retry attempts (override to 0 in unit tests).
         self._reconnect_interval: int = 60
         # Seconds between checks in startup-error waiting loop (override in tests).
@@ -111,9 +112,9 @@ class BlinkClipDownloaderApp:
 
         _LOGGER.info("Blink Clip Downloader starting up")
 
-        loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, self._handle_shutdown)
+            self._loop.add_signal_handler(sig, self._handle_shutdown)
 
         # Init database.
         if self._config.enable_library_db:
@@ -367,10 +368,14 @@ class BlinkClipDownloaderApp:
             delay,
         )
         try:
-            loop = asyncio.get_event_loop()
-            loop.call_later(delay, self._activate_fast_poll)
+            loop = self._loop or asyncio.get_running_loop()
         except RuntimeError:
-            pass
+            _LOGGER.debug(
+                "No running event loop available to schedule post-motion delay"
+            )
+            return
+        self._loop = loop
+        loop.call_later(delay, self._activate_fast_poll)
 
     def _activate_fast_poll(self) -> None:
         """Activate fast-poll mode for one cycle (used by post-motion timer)."""

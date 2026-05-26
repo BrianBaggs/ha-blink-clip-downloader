@@ -551,8 +551,9 @@ class BlinkDownloader:
         self._two_fa_event = asyncio.Event()
         self._two_fa_code = None
 
-        deadline = asyncio.get_event_loop().time() + self._config.two_fa_timeout
-        while asyncio.get_event_loop().time() < deadline:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._config.two_fa_timeout
+        while loop.time() < deadline:
             # --- Check web-UI submission first (code already set before event) ---
             if self._two_fa_event.is_set():
                 code = self._two_fa_code or ""
@@ -571,7 +572,7 @@ class BlinkDownloader:
                     return
 
             # --- Wait for the event or poll timeout ---
-            remaining = deadline - asyncio.get_event_loop().time()
+            remaining = deadline - loop.time()
             try:
                 await asyncio.wait_for(
                     self._two_fa_event.wait(),
