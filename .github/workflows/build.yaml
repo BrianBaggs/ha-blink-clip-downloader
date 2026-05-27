@@ -67,8 +67,8 @@ jobs:
           image: >
             ghcr.io/${{ github.repository_owner }}/blink_clip_downloader
           image-tags: |
-            ghcr.io/${{ github.repository_owner }}/blink_clip_downloader:${{ steps.version.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/blink_clip_downloader:latest
+            ${{ steps.version.outputs.version }}
+            latest
           push: "true"
           cosign: "false"
           version: ${{ steps.version.outputs.version }}
