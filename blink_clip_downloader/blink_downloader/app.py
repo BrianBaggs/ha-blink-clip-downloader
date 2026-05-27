@@ -194,7 +194,7 @@ class BlinkClipDownloaderApp:  # pylint: disable=too-many-instance-attributes,to
             try:
                 await self._poll_cycle()
             except Exception as exc:  # noqa: BLE001 pylint: disable=broad-exception-caught
-                _LOGGER.error("Unhandled error in poll cycle: %s", exc, exc_info=True)
+                _LOGGER.exception("Unhandled error in poll cycle: %s", exc)
 
             if self._running:
                 await self._wait_with_trigger_check()
@@ -233,7 +233,7 @@ class BlinkClipDownloaderApp:  # pylint: disable=too-many-instance-attributes,to
                 )
                 await self._notifier.notify(str(exc), title="Blink 2FA Required")
             except Exception as exc:  # noqa: BLE001 pylint: disable=broad-exception-caught
-                _LOGGER.error(
+                _LOGGER.exception(
                     "Failed to connect to Blink (attempt %d): %s — retrying in %d s",
                     attempt,
                     exc,

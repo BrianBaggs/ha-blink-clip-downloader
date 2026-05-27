@@ -335,8 +335,7 @@ class ClipDatabase:
         all_tags: set[str] = set()
         for (raw,) in rows:
             try:
-                for t in json.loads(raw or "[]"):
-                    all_tags.add(t)
+                all_tags.update(json.loads(raw or "[]"))
             except json.JSONDecodeError:
                 pass
         return sorted(all_tags)

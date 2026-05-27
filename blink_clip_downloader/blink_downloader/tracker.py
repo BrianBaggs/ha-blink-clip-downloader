@@ -86,7 +86,7 @@ class ClipTracker:
             if raw_time:
                 self._last_download_time = datetime.fromisoformat(raw_time)
             self._stats = {**self._stats, **data.get("stats", {})}
-        except (json.JSONDecodeError, ValueError, KeyError) as exc:
+        except (ValueError, KeyError) as exc:
             _LOGGER.warning(
                 "Tracker file %s is corrupt, starting fresh: %s", self._file, exc
             )
