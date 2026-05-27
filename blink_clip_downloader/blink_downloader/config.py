@@ -17,6 +17,7 @@ _VALID_LOG_LEVELS = frozenset({"debug", "info", "warning", "error"})
 @dataclass
 class AppConfig:  # pylint: disable=too-many-instance-attributes
     """Home Assistant add-on runtime options loaded from options.json."""
+
     # --- Required ---
     username: str
     password: str

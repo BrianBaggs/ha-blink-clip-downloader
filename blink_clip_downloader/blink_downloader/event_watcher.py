@@ -86,7 +86,6 @@ class HAEventWatcher:
         async with self._session.ws_connect(
             _WS_URL,
             heartbeat=30,
-
         ) as ws:
             _LOGGER.debug("WebSocket connected to %s", _WS_URL)
 
