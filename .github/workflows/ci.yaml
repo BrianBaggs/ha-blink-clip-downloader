@@ -114,17 +114,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build add-on image
-        uses: home-assistant/builder/actions/build-image@2026.03.2
-        with:
-          arch: amd64
-          image: ${{ env.ADDON_IMAGE }}
-          image-tags: |
-            ${{ env.TAG }}
-          push: "false"
-          cosign: "false"
-          version: ${{ env.TAG }}
-          context: blink_clip_downloader
+      - name: Build add-on image (local Docker)
+        run: |
+          docker build \
+            --pull \
+            -t ${{ env.ADDON_IMAGE }}:${{ env.TAG }} \
+            blink_clip_downloader
 
       - name: Save built Docker image
         run: |
