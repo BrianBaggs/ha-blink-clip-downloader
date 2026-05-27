@@ -7,3 +7,6 @@ __pycache__
 .venv/*
 .vscode/*
 .python-version
+.ruff_cache/*
+.mypy_cache/*
+.pytest_cache/*

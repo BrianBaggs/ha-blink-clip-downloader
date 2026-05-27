@@ -22,8 +22,8 @@ panel_icon: mdi:cctv
 panel_title: Blink Clips
 
 map:
-  - "share:rw"
-  - "data:rw"
+  - share: rw
+  - data: rw
 
 # Direct-access port (optional alternative to ingress).
 ports:
