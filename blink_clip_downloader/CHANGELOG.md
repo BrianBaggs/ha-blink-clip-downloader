@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.6
+
+### Bug fixes
+
+- Fixed automatic library refresh while browsing clips so the page will no longer jump back to the top unexpectedly.
+
 ## 2.5.5
 
 ### New features

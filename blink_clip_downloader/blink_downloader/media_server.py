@@ -1384,10 +1384,12 @@ async function loadAll() {
 loadAll();
 loadTagFilter();
 // Auto-refresh every 60 s when Library is visible and modal is closed
+// Only refresh stats/cameras to avoid replacing the clip grid while the user is browsing.
 setInterval(() => {
   if (document.querySelector('[data-tab="library"]').classList.contains('active')
       && !$('modal-bg').classList.contains('open')) {
-    loadAll();
+    loadStats();
+    loadCameras();
   }
 }, 60000);
 </script>
