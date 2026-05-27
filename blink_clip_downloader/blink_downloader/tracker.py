@@ -58,7 +58,7 @@ class ClipTracker:
             ),
             "stats": self._stats,
         }
-        self._file.write_text(json.dumps(payload, indent=2))
+        self._file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     # ------------------------------------------------------------------
     # Properties
@@ -80,7 +80,7 @@ class ClipTracker:
         if not self._file.exists():
             return
         try:
-            data = json.loads(self._file.read_text())
+            data = json.loads(self._file.read_text(encoding="utf-8"))
             self._downloaded = set(data.get("downloaded_ids", []))
             raw_time = data.get("last_download_time")
             if raw_time:

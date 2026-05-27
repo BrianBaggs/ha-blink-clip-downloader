@@ -15,7 +15,8 @@ _VALID_LOG_LEVELS = frozenset({"debug", "info", "warning", "error"})
 
 
 @dataclass
-class AppConfig:
+class AppConfig:  # pylint: disable=too-many-instance-attributes
+    """Home Assistant add-on runtime options loaded from options.json."""
     # --- Required ---
     username: str
     password: str
@@ -104,7 +105,7 @@ def load_config(options_path: Path = OPTIONS_FILE) -> AppConfig:
     if not options_path.exists():
         raise FileNotFoundError(f"Options file not found: {options_path}")
 
-    with options_path.open() as fh:
+    with options_path.open(encoding="utf-8") as fh:
         data = json.load(fh)
 
     return _parse_config(data)

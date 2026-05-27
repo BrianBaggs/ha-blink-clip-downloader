@@ -11,17 +11,23 @@ from pathlib import Path
 from blink_downloader.storage import StorageManager, _cleanup_empty_dirs, _safe_name
 
 
-def make_storage(tmp_path: Path, **overrides) -> StorageManager:
-    defaults = dict(
-        base_path=tmp_path / "clips",
-        max_storage_gb=1.0,
-        retention_days=30,
-        organize_by_camera=True,
-        organize_by_date=True,
-        filename_format="{camera}_{timestamp}",
+def make_storage(
+    tmp_path: Path,
+    base_path: Path | None = None,
+    max_storage_gb: float = 1.0,
+    retention_days: int = 30,
+    organize_by_camera: bool = True,
+    organize_by_date: bool = True,
+    filename_format: str = "{camera}_{timestamp}",
+) -> StorageManager:
+    return StorageManager(
+        base_path=base_path or tmp_path / "clips",
+        max_storage_gb=max_storage_gb,
+        retention_days=retention_days,
+        organize_by_camera=organize_by_camera,
+        organize_by_date=organize_by_date,
+        filename_format=filename_format,
     )
-    defaults.update(overrides)
-    return StorageManager(**defaults)
 
 
 TS = datetime(2024, 6, 15, 10, 30, 0, tzinfo=timezone.utc)

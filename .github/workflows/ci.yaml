@@ -18,10 +18,11 @@ jobs:
           python-version: '3.13'
           cache: 'pip'
 
-      - name: Install linting tools
+      - name: Install linting tools and project dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pylint pyright yamllint ruff
+          pip install -e "blink_clip_downloader"
 
       - name: Run Home Assistant addon linter
         uses: frenck/action-addon-linter@v2
@@ -32,10 +33,6 @@ jobs:
       - name: Run YAML lint
         run: yamllint .
 
-      - name: Install project (editable)
-        run: |
-          pip install -e "blink_clip_downloader"
-
       - name: Run Ruff (modern Python lint)
         run: ruff check blink_clip_downloader
 
@@ -43,7 +40,7 @@ jobs:
         run: pylint blink_clip_downloader/blink_downloader
 
       - name: Run Pyright (type check)
-        run: pyright
+        run: pyright --project pyrightconfig.json
 
   test:
     name: Tests (Python 3.13)

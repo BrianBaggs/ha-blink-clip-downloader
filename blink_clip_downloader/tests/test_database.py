@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from blink_downloader.database import ClipDatabase
 
 
 @pytest.fixture
-async def db(tmp_path: Path) -> ClipDatabase:
+async def db(tmp_path: Path) -> AsyncGenerator[ClipDatabase, None]:
     d = ClipDatabase(tmp_path / "test.db")
     await d.init()
     yield d
@@ -116,10 +117,12 @@ async def test_star_and_unstar_clip(db: ClipDatabase) -> None:
     await db.add_clip(_make_clip())
     assert await db.star_clip("clip1", True) is True
     result = await db.get_clip("clip1")
+    assert result is not None
     assert result["starred"] is True
 
     assert await db.star_clip("clip1", False) is True
     result = await db.get_clip("clip1")
+    assert result is not None
     assert result["starred"] is False
 
 
@@ -131,6 +134,7 @@ async def test_set_tags(db: ClipDatabase) -> None:
     await db.add_clip(_make_clip())
     assert await db.set_tags("clip1", ["important", "night"]) is True
     result = await db.get_clip("clip1")
+    assert result is not None
     assert "important" in result["tags"]
     assert "night" in result["tags"]
 
@@ -211,6 +215,7 @@ async def test_mark_archived(db: ClipDatabase) -> None:
     await db.add_clip(_make_clip())
     await db.mark_archived("clip1", "/archives/2024-06.zip")
     result = await db.get_clip("clip1")
+    assert result is not None
     assert result["archived"] is True
     assert result["archive_path"] == "/archives/2024-06.zip"
 

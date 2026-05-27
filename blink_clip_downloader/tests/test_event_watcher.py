@@ -135,6 +135,7 @@ def test_camera_whitelist_also_applies_to_cleared() -> None:
     w._handle_state_changed(
         _motion_event("binary_sensor.blink_front_door_motion", "off")
     )
+    assert cb_cleared is not None
     cb_cleared.assert_not_called()
 
 
@@ -376,8 +377,11 @@ async def test_connect_and_watch_stops_when_not_running() -> None:
     import aiohttp
 
     class _StopAfterFirstWS(_FakeWS):
+        _watcher: HAEventWatcher | None = None
+
         async def __anext__(self):
             # Flip running off before yielding so the inner check fires
+            assert self._watcher is not None
             self._watcher._running = False
             msg = MagicMock()
             msg.type = aiohttp.WSMsgType.TEXT

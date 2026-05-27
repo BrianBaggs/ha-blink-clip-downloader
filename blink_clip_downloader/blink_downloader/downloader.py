@@ -39,7 +39,7 @@ class AuthenticationError(Exception):
     """Raised on unrecoverable login failure."""
 
 
-class BlinkDownloader:
+class BlinkDownloader:  # pylint: disable=too-many-instance-attributes
     """Handles Blink authentication and streaming clip downloads."""
 
     def __init__(
@@ -88,7 +88,7 @@ class BlinkDownloader:
         }
         if AUTH_FILE.exists():
             try:
-                cached = json.loads(AUTH_FILE.read_text())
+                cached = json.loads(AUTH_FILE.read_text(encoding="utf-8"))
                 login_data.update(cached)
                 _LOGGER.debug("Loaded cached Blink auth credentials")
             except (json.JSONDecodeError, KeyError):
@@ -102,7 +102,7 @@ class BlinkDownloader:
             await self._blink.start()
         except BlinkTwoFARequiredError:
             await self._handle_2fa()
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 pylint: disable=broad-exception-caught
             self.auth_state = "error"
             self.auth_message = "Authentication failed. Check your Blink credentials."
             raise
@@ -113,13 +113,19 @@ class BlinkDownloader:
         _LOGGER.info("Connected to Blink (account_id=%s)", self._blink.account_id)
 
     async def disconnect(self) -> None:
+        """Log out from Blink and close the HTTP session."""
         if self._blink:
             try:
                 await blink_api.request_logout(self._blink)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 pylint: disable=broad-exception-caught
                 pass
         if self._session and not self._session.closed:
             await self._session.close()
+
+    @property
+    def account_id(self) -> str | None:
+        """Return the currently authenticated Blink account ID, if any."""
+        return getattr(self._blink, "account_id", None)
 
     # ------------------------------------------------------------------
     # Downloading
@@ -203,7 +209,7 @@ class BlinkDownloader:
 
             try:
                 await sync.update_local_storage_manifest()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 pylint: disable=broad-exception-caught
                 _LOGGER.warning(
                     "Could not refresh local-storage manifest for %r: %s",
                     sync_name,
@@ -268,7 +274,7 @@ class BlinkDownloader:
                         str(dest),
                         max_retries=self._config.retry_attempts,
                     )
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 pylint: disable=broad-exception-caught
                     _LOGGER.error(
                         "Error downloading local-storage clip %s: %s", item.id, exc
                     )
@@ -332,7 +338,7 @@ class BlinkDownloader:
                 data = await blink_api.request_videos(
                     self._blink, time=since_epoch, page=page
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 pylint: disable=broad-exception-caught
                 _LOGGER.warning("request_videos failed (page %d): %s", page, exc)
                 break
 
@@ -596,7 +602,7 @@ class BlinkDownloader:
             try:
                 attrs = self._blink.auth.login_attributes
                 AUTH_FILE.write_text(json.dumps(attrs, indent=2))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 pylint: disable=broad-exception-caught
                 _LOGGER.warning("Could not persist auth credentials: %s", exc)
 
     async def _get_session(self) -> aiohttp.ClientSession:
