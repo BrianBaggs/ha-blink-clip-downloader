@@ -102,7 +102,7 @@ class BlinkDownloader:  # pylint: disable=too-many-instance-attributes
             await self._blink.start()
         except BlinkTwoFARequiredError:
             await self._handle_2fa()
-        except Exception as exc:  # noqa: BLE001 pylint: disable=broad-exception-caught
+        except Exception:  # noqa: BLE001 pylint: disable=broad-exception-caught
             self.auth_state = "error"
             self.auth_message = "Authentication failed. Check your Blink credentials."
             raise

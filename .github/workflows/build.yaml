@@ -6,9 +6,14 @@ name: Build & Publish
     types: [published]
   workflow_dispatch: {}
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: blink_clip_downloader
+  PYTHON_BASE: ghcr.io/home-assistant/base-python:3.12
 
 jobs:
   build:
@@ -21,6 +26,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
 
     strategy:
+      fail-fast: false
       matrix:
         arch: [aarch64, amd64]
         include:
@@ -58,7 +64,7 @@ jobs:
         with:
           arch: ${{ matrix.arch }}
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
-          image: ${{ env.REGISTRY }}/${{ matrix.arch }}-${{ env.IMAGE_NAME }}
+          image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
           image-tags: |
             ${{ steps.version.outputs.version }}
             latest
@@ -67,7 +73,7 @@ jobs:
           version: ${{ steps.version.outputs.version }}
           context: blink_clip_downloader
           build-args: |
-            BUILD_FROM=ghcr.io/home-assistant/base-python:3.12
+            BUILD_FROM=${{ env.PYTHON_BASE }}
 
   manifest:
     name: Create multi-arch manifest

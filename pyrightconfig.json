@@ -7,7 +7,7 @@
     {
       "root": ".",
       "extraPaths": ["blink_clip_downloader"],
-      "pythonVersion": "3.13"
+      "pythonVersion": "3.12"
     }
   ],
   "reportMissingImports": "error",
