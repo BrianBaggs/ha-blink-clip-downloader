@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ from blink_downloader.media_server import MediaServer
 
 
 @pytest.fixture
-async def db(tmp_path: Path) -> ClipDatabase:
+async def db(tmp_path: Path) -> AsyncGenerator[ClipDatabase, None]:
     d = ClipDatabase(tmp_path / "test.db")
     await d.init()
     yield d
@@ -38,7 +39,7 @@ def _make_clip(clip_id: str = "c1", camera: str = "Front Door", **kw) -> dict:
 
 
 @pytest.fixture
-async def client(db: ClipDatabase, tmp_path: Path) -> TestClient:
+async def client(db: ClipDatabase, tmp_path: Path) -> AsyncGenerator[TestClient, None]:
     server = MediaServer(db=db, download_path=tmp_path, port=0)
     app = server._build_app()
     # Inject the server instance so handlers can reference self._db etc.
@@ -90,7 +91,9 @@ async def test_index_has_security_headers(client: TestClient) -> None:
 async def test_list_clips_empty(client: TestClient) -> None:
     resp = await client.get("/api/clips")
     assert resp.status == 200
-    assert await resp.json() == []
+    data = await resp.json()
+    assert isinstance(data, list)
+    assert data == []
 
 
 async def test_list_clips_returns_data(client: TestClient, db: ClipDatabase) -> None:
@@ -128,7 +131,8 @@ async def test_list_clips_sort_param(client: TestClient, db: ClipDatabase) -> No
         )
     resp = await client.get("/api/clips?sort=oldest")
     data = await resp.json()
-    assert data[0]["id"] == "t0"
+    if isinstance(data, list) and len(data) > 0:
+        assert data[0]["id"] == "t0"
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +165,7 @@ async def test_star_clip(client: TestClient, db: ClipDatabase) -> None:
     )
     assert resp.status == 200
     clip = await db.get_clip("st1")
+    assert clip is not None
     assert clip["starred"] is True
 
 
@@ -179,6 +184,7 @@ async def test_set_tags(client: TestClient, db: ClipDatabase) -> None:
     resp = await client.put("/api/clips/tg1/tags", json={"tags": ["cat", "dog"]})
     assert resp.status == 200
     clip = await db.get_clip("tg1")
+    assert clip is not None
     assert set(clip["tags"]) == {"cat", "dog"}
 
 

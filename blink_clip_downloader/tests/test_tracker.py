@@ -86,6 +86,7 @@ def test_last_download_time_persisted(tmp_path):
 
     t2 = ClipTracker(f)
     assert t2.last_download_time is not None
+    assert saved_time is not None
     assert abs((t2.last_download_time - saved_time).total_seconds()) < 1
 
 

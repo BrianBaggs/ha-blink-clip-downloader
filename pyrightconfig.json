@@ -1,0 +1,17 @@
+{
+  "include": [
+    "blink_clip_downloader/blink_downloader",
+    "blink_clip_downloader/tests"
+  ],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": ["blink_clip_downloader"],
+      "pythonVersion": "3.12"
+    }
+  ],
+  "reportMissingImports": "error",
+  "reportOptionalMemberAccess": "warning",
+  "reportOptionalOperand": "warning",
+  "reportGeneralTypeIssues": "warning"
+}

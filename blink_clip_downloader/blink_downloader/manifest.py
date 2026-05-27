@@ -30,7 +30,7 @@ class ClipManifest:
             "recorded_at": datetime.now(timezone.utc).isoformat(),
         }
         try:
-            with self._file.open("a") as fh:
+            with self._file.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record) + "\n")
         except OSError as exc:
             _LOGGER.warning("Could not write to manifest %s: %s", self._file, exc)
@@ -40,7 +40,7 @@ class ClipManifest:
         if not self._file.exists():
             return []
         records = []
-        for line in self._file.read_text().splitlines():
+        for line in self._file.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line:
                 try:

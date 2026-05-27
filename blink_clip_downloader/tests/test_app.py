@@ -463,24 +463,13 @@ def test_activate_fast_poll_sets_fast_poll_until(app):
 
 def test_on_blink_motion_cleared_schedules_timer(app):
     """_on_blink_motion_cleared should call loop.call_later without raising."""
-    called_with = {}
-    loop = asyncio.get_event_loop()
-    original = loop.call_later
-
-    def fake_call_later(delay, callback, *args):
-        called_with["delay"] = delay
-        called_with["callback"] = callback
-        return original(delay, callback, *args)
-
-    loop.call_later = fake_call_later
+    loop = MagicMock()
+    app._loop = loop
     app._config.post_motion_delay = 15
-    try:
-        app._on_blink_motion_cleared("Garage")
-    finally:
-        loop.call_later = original
 
-    assert called_with.get("delay") == 15
-    assert called_with.get("callback") == app._activate_fast_poll
+    app._on_blink_motion_cleared("Garage")
+
+    loop.call_later.assert_called_once_with(15, app._activate_fast_poll)
 
 
 # ---------------------------------------------------------------------------

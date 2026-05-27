@@ -29,7 +29,7 @@ STATS_FILE = Path("/data/stats.json")
 TRIGGER_FILE = Path("/data/trigger_download")
 
 
-class BlinkClipDownloaderApp:
+class BlinkClipDownloaderApp:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
     """Co-ordinates polling, downloading, library, media server, and events."""
 
     def __init__(self, config: AppConfig) -> None:
@@ -90,6 +90,7 @@ class BlinkClipDownloaderApp:
         # Fast-poll state: epoch time until which we poll at fast_poll_interval.
         self._fast_poll_until: float = 0.0
         self._bg_tasks: list[asyncio.Task] = []
+        self._loop: asyncio.AbstractEventLoop | None = None
         # Seconds between Blink auth retry attempts (override to 0 in unit tests).
         self._reconnect_interval: int = 60
         # Seconds between checks in startup-error waiting loop (override in tests).
@@ -111,9 +112,9 @@ class BlinkClipDownloaderApp:
 
         _LOGGER.info("Blink Clip Downloader starting up")
 
-        loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, self._handle_shutdown)
+            self._loop.add_signal_handler(sig, self._handle_shutdown)
 
         # Init database.
         if self._config.enable_library_db:
@@ -179,7 +180,7 @@ class BlinkClipDownloaderApp:
         # status endpoint so the Storage card is populated right away.
         self._media_server.extra_status = {
             "connected": True,
-            "account_id": getattr(self._downloader._blink, "account_id", None),
+            "account_id": self._downloader.account_id,
             "disk": self._storage.disk_stats(),
         }
 
@@ -192,8 +193,8 @@ class BlinkClipDownloaderApp:
         while self._running:
             try:
                 await self._poll_cycle()
-            except Exception as exc:  # noqa: BLE001
-                _LOGGER.error("Unhandled error in poll cycle: %s", exc, exc_info=True)
+            except Exception as exc:  # noqa: BLE001 pylint: disable=broad-exception-caught
+                _LOGGER.exception("Unhandled error in poll cycle: %s", exc)
 
             if self._running:
                 await self._wait_with_trigger_check()
@@ -231,8 +232,8 @@ class BlinkClipDownloaderApp:
                     self._reconnect_interval,
                 )
                 await self._notifier.notify(str(exc), title="Blink 2FA Required")
-            except Exception as exc:  # noqa: BLE001
-                _LOGGER.error(
+            except Exception as exc:  # noqa: BLE001 pylint: disable=broad-exception-caught
+                _LOGGER.exception(
                     "Failed to connect to Blink (attempt %d): %s — retrying in %d s",
                     attempt,
                     exc,
@@ -367,10 +368,14 @@ class BlinkClipDownloaderApp:
             delay,
         )
         try:
-            loop = asyncio.get_event_loop()
-            loop.call_later(delay, self._activate_fast_poll)
+            loop = self._loop or asyncio.get_running_loop()
         except RuntimeError:
-            pass
+            _LOGGER.debug(
+                "No running event loop available to schedule post-motion delay"
+            )
+            return
+        self._loop = loop
+        loop.call_later(delay, self._activate_fast_poll)
 
     def _activate_fast_poll(self) -> None:
         """Activate fast-poll mode for one cycle (used by post-motion timer)."""

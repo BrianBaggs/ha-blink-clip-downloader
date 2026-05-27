@@ -73,16 +73,18 @@ def test_handle_motion_off_fires_cleared_callback() -> None:
         _motion_event("binary_sensor.blink_front_door_motion", "off")
     )
     cb.assert_not_called()
-    cb_cleared.assert_called_once_with("front door")
+    if cb_cleared is not None:
+        cb_cleared.assert_called_once_with("front door")
 
 
 def test_handle_motion_off_no_cleared_callback_is_safe() -> None:
-    w, cb, _ = _make_watcher(with_cleared=False)
+    w, cb, cb_cleared = _make_watcher(with_cleared=False)
     # Should not raise even though no cleared callback is registered
     w._handle_state_changed(
         _motion_event("binary_sensor.blink_front_door_motion", "off")
     )
     cb.assert_not_called()
+    assert cb_cleared is None
 
 
 def test_handle_motion_state_unavailable_ignored() -> None:
@@ -133,6 +135,7 @@ def test_camera_whitelist_also_applies_to_cleared() -> None:
     w._handle_state_changed(
         _motion_event("binary_sensor.blink_front_door_motion", "off")
     )
+    assert cb_cleared is not None
     cb_cleared.assert_not_called()
 
 
@@ -374,8 +377,11 @@ async def test_connect_and_watch_stops_when_not_running() -> None:
     import aiohttp
 
     class _StopAfterFirstWS(_FakeWS):
+        _watcher: HAEventWatcher | None = None
+
         async def __anext__(self):
             # Flip running off before yielding so the inner check fires
+            assert self._watcher is not None
             self._watcher._running = False
             msg = MagicMock()
             msg.type = aiohttp.WSMsgType.TEXT

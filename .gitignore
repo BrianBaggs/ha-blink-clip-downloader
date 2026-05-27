@@ -4,3 +4,9 @@ __pycache__/*
 */__pycache__/
 __pycache__
 .coverage
+.venv/*
+.vscode/*
+.python-version
+.ruff_cache/*
+.mypy_cache/*
+.pytest_cache/*

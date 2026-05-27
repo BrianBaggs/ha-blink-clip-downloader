@@ -15,10 +15,10 @@ quotas, Home Assistant notifications, and much more.
 
 1. In Home Assistant go to **Settings → Add-ons → Add-on Store**.
 2. Click the three-dot menu (⋮) → **Repositories**.
-3. Paste `https://github.com/yourusername/ha-blink-clip-downloader` and click **Add**.
+3. Paste `https://github.com/brianbaggs35/ha-blink-clip-downloader` and click **Add**.
 4. Search for **Blink Clip Downloader** and click **Install**.
 5. Fill in your Blink credentials and click **Save**, then **Start**.
 
 ## Support
 
-Open an issue at <https://github.com/yourusername/ha-blink-clip-downloader/issues>.
+Open an issue at <https://github.com/brianbaggs35/ha-blink-clip-downloader/issues>.
