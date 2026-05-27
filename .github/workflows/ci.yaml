@@ -152,7 +152,10 @@ jobs:
 
       - name: Check container is running
         run: |
-          if ! docker ps --filter "name=addon" --filter "status=running" | grep addon; then
+          if ! docker ps \
+            --filter "name=addon" \
+            --filter "status=running" \
+            | grep addon; then
             docker logs addon
             exit 1
           fi

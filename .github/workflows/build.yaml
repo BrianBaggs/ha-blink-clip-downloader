@@ -8,7 +8,7 @@ name: Build & Publish
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: "${{ github.repository_owner }}/ha-blink-clip-downloader/blink_clip_downloader"
+  IMAGE_NAME: blink_clip_downloader
 
 jobs:
   build:
